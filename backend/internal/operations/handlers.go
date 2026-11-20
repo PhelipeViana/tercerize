@@ -233,6 +233,211 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateCompany: POST /api/tenants/update (exclusivo Master)
+// Permite ao Master editar Razão Social, CNPJ, Nome/E-mail do responsável e status Ativa/Desativada.
+// Usuários comuns (inclusive Donos) recebem 403 Forbidden e jamais podem alterar estes dados.
+func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas usuários com acesso Master podem editar as informações da empresa.")
+		return
+	}
+	var in struct {
+		TenantID   string `json:"tenantId"`
+		Name       string `json:"name"`
+		CNPJ       string `json:"cnpj"`
+		OwnerName  string `json:"ownerName"`
+		OwnerEmail string `json:"ownerEmail"`
+		Active     *bool  `json:"active"`
+		ResendLink bool   `json:"resendLink"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
+		return
+	}
+	tenantID := strings.TrimSpace(in.TenantID)
+	if tenantID == "" {
+		httpx.Message(w, http.StatusBadRequest, "Empresa inválida.")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if len([]rune(name)) < 2 {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "name",
+			"message": "Informe a razão social da empresa (mínimo 2 caracteres).",
+		})
+		return
+	}
+	formattedCNPJ, cnpjErr := auth.ValidateCNPJ(in.CNPJ)
+	if cnpjErr != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "cnpj",
+			"message": cnpjErr,
+		})
+		return
+	}
+	ownerName := strings.TrimSpace(in.OwnerName)
+	if len([]rune(ownerName)) < 2 {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "ownerName",
+			"message": "Informe o nome do responsável (dono da empresa).",
+		})
+		return
+	}
+	ownerEmail, emailErr := auth.NormalizeEmail(in.OwnerEmail)
+	if emailErr != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "ownerEmail",
+			"message": emailErr,
+		})
+		return
+	}
+
+	ctx := r.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao iniciar transação.")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var currentActive bool
+	var oldOwnerEmail string
+	var oldOwnerUserID *string
+	err = tx.QueryRow(ctx,
+		`SELECT active, COALESCE(owner_email, ''), owner_user_id::text FROM tenants WHERE id = $1`,
+		tenantID).Scan(&currentActive, &oldOwnerEmail, &oldOwnerUserID)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Empresa não encontrada.")
+		return
+	}
+
+	var duplicateCNPJ bool
+	_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE cnpj = $1 AND id <> $2)`, formattedCNPJ, tenantID).Scan(&duplicateCNPJ)
+	if duplicateCNPJ {
+		httpx.Write(w, http.StatusConflict, map[string]any{
+			"field":   "cnpj",
+			"message": "Já existe outra empresa cadastrada com este CNPJ.",
+		})
+		return
+	}
+
+	newActive := currentActive
+	if in.Active != nil {
+		newActive = *in.Active
+	}
+
+	newOwnerUserID, _, _, err := h.authRepo.EnsureUserWithTOTP(ctx, tx, ownerName, ownerEmail)
+	if err != nil {
+		h.log.Error("provisionar novo dono da empresa", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao atualizar responsável da empresa.")
+		return
+	}
+
+	// Atualiza o nome do usuário responsável (exceto se for Master)
+	_, _ = tx.Exec(ctx,
+		`UPDATE users SET name = $1 WHERE id = $2 AND is_master = false`,
+		ownerName, newOwnerUserID)
+
+	// Garante que exista a role owner na empresa
+	var ownerRoleID string
+	err = tx.QueryRow(ctx, `SELECT id FROM tenant_roles WHERE tenant_id = $1 AND key = 'owner' LIMIT 1`, tenantID).Scan(&ownerRoleID)
+	if err != nil || ownerRoleID == "" {
+		ownerRoleID, err = seedDefaultRoles(ctx, tx, tenantID)
+		if err != nil {
+			httpx.Message(w, http.StatusInternalServerError, "Erro ao verificar função de dono da empresa.")
+			return
+		}
+	}
+
+	// Atualiza dados cadastrais da empresa
+	_, err = tx.Exec(ctx,
+		`UPDATE tenants
+		    SET name = $1,
+		        cnpj = $2,
+		        owner_name = $3,
+		        owner_email = $4,
+		        owner_user_id = $5,
+		        active = $6
+		  WHERE id = $7`,
+		name, formattedCNPJ, ownerName, ownerEmail, newOwnerUserID, newActive, tenantID)
+	if err != nil {
+		h.log.Error("atualizar empresa", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao salvar alterações da empresa.")
+		return
+	}
+
+	// Vincula o novo responsável como Dono da empresa
+	_, err = tx.Exec(ctx,
+		`INSERT INTO tenant_memberships (tenant_id, user_id, role_id)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (tenant_id, user_id) DO UPDATE SET role_id = EXCLUDED.role_id`,
+		tenantID, newOwnerUserID, ownerRoleID)
+	if err != nil {
+		h.log.Error("atualizar vínculo de dono", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao atualizar vínculo do responsável.")
+		return
+	}
+
+	// Se o responsável mudou, remove o vínculo de dono do antigo responsável (se não for Master) e encerra sessões dele nessa empresa
+	ownerChanged := !strings.EqualFold(strings.TrimSpace(oldOwnerEmail), ownerEmail)
+	if oldOwnerUserID != nil && *oldOwnerUserID != "" && *oldOwnerUserID != newOwnerUserID {
+		_, _ = tx.Exec(ctx,
+			`DELETE FROM tenant_memberships
+			  WHERE tenant_id = $1
+			    AND user_id = $2
+			    AND user_id IN (SELECT id FROM users WHERE is_master = false)`,
+			tenantID, *oldOwnerUserID)
+		_, _ = tx.Exec(ctx,
+			`DELETE FROM sessions
+			  WHERE active_tenant_id = $1
+			    AND user_id = $2
+			    AND user_id IN (SELECT id FROM users WHERE is_master = false)`,
+			tenantID, *oldOwnerUserID)
+	}
+
+	// Se a empresa foi desativada, desloga imediatamente todos os usuários não-Master conectados a ela
+	if !newActive {
+		_, _ = tx.Exec(ctx,
+			`DELETE FROM sessions
+			  WHERE active_tenant_id = $1
+			    AND user_id IN (SELECT id FROM users WHERE is_master = false)`,
+			tenantID)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao confirmar alterações da empresa.")
+		return
+	}
+
+	// Envia link do Google Authenticator se o e-mail do responsável foi alterado ou se o Master marcou reenvio
+	emailSent := false
+	emailWarning := ""
+	if (ownerChanged || in.ResendLink) && newActive {
+		if rawToken, linkErr := h.authRepo.CreateSetupLink(ctx, newOwnerUserID, tenantID); linkErr == nil {
+			activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+			if mailErr := h.mailer.SendAuthenticatorLink(ownerEmail, ownerName, name, "Dono da empresa", activationURL); mailErr != nil {
+				h.log.Error("enviar e-mail após edição da empresa", "to", ownerEmail, "err", mailErr)
+				emailWarning = "Empresa atualizada, mas houve falha no disparo do e-mail SMTP: " + mailErr.Error()
+			} else {
+				emailSent = true
+			}
+		}
+	}
+
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"id":           tenantID,
+		"name":         name,
+		"cnpj":         formattedCNPJ,
+		"ownerName":    ownerName,
+		"ownerEmail":   ownerEmail,
+		"active":       newActive,
+		"emailSent":    emailSent,
+		"emailWarning": emailWarning,
+	})
+}
+
 var roleKeyRe = regexp.MustCompile(`[^a-z0-9_]+`)
 
 // CreateOrUpdateRole: POST /api/rbac/roles (apenas Dono da empresa ativa ou Master)

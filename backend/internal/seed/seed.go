@@ -10,39 +10,14 @@ import (
 	"tercerize/backend/internal/totp"
 )
 
-// Ensure guarantees the Master account (phelipegabriel1988@gmail.com) with TOTP secret and initial multi-company data exist.
+// Ensure guarantees the Master account (phelipegabriel1988@gmail.com) with TOTP secret exists.
+// Não cria empresas fictícias automaticamente, permitindo iniciar a plataforma do zero.
 func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	var tenant1ID string
-	err = tx.QueryRow(ctx, `SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1`).Scan(&tenant1ID)
-	if err != nil {
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO tenants (name, cnpj, owner_name, owner_email, active)
-			 VALUES ('Tercerize Serviços & Facilities MT Ltda', '14.520.890/0001-77', 'Phelipe Viana', 'phelipegabriel1988@gmail.com', true)
-			 RETURNING id`).Scan(&tenant1ID); err != nil {
-			return fmt.Errorf("seed tenant 1: %w", err)
-		}
-
-		var tenant2ID string
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO tenants (name, cnpj, owner_name, owner_email, active)
-			 VALUES ('Alfa Engenharia & Manutenção Predial Ltda', '28.910.440/0001-03', 'Phelipe Viana', 'phelipegabriel1988@gmail.com', true)
-			 RETURNING id`).Scan(&tenant2ID); err != nil {
-			return fmt.Errorf("seed tenant 2: %w", err)
-		}
-
-		if err := seedTenant1Data(ctx, tx, tenant1ID); err != nil {
-			return err
-		}
-		if err := seedTenant2Data(ctx, tx, tenant2ID); err != nil {
-			return err
-		}
-	}
 
 	// Ensure Master user exists with is_master = true and a valid Base32 TOTP secret
 	masterSecret, err := totp.GenerateSecret()
@@ -53,13 +28,13 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 	var masterID string
 	err = tx.QueryRow(ctx,
 		`INSERT INTO users (tenant_id, name, email, password_hash, role, is_master, totp_secret)
-		 VALUES ($1, 'Phelipe Viana', 'phelipegabriel1988@gmail.com', '', 'developer', true, $2)
+		 VALUES (NULL, 'Phelipe Viana', 'phelipegabriel1988@gmail.com', '', 'developer', true, $1)
 		 ON CONFLICT ((lower(email))) DO UPDATE
 		 SET is_master = true,
 		     name = 'Phelipe Viana',
 		     totp_secret = CASE WHEN users.totp_secret = '' THEN EXCLUDED.totp_secret ELSE users.totp_secret END
 		 RETURNING id`,
-		tenant1ID, masterSecret).Scan(&masterID)
+		masterSecret).Scan(&masterID)
 	if err != nil {
 		return fmt.Errorf("seed master user: %w", err)
 	}
@@ -82,7 +57,7 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 
-	// Ensure all tenants have owner_user_id and default roles
+	// Ensure existing tenants have owner_user_id populated
 	_, _ = tx.Exec(ctx,
 		`UPDATE tenants
 		 SET owner_name = CASE WHEN owner_name = '' THEN 'Phelipe Viana' ELSE owner_name END,

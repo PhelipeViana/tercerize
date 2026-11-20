@@ -47,9 +47,10 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Use(authHandlers.Require)
 			r.Get("/me", authHandlers.Me)
 
-			// Multi-Empresas
+			// Multi-Empresas (gestão exclusiva Master)
 			r.Post("/tenants/switch", authHandlers.SwitchTenant)
 			r.Post("/tenants", opHandlers.CreateCompany)
+			r.Post("/tenants/update", opHandlers.UpdateCompany)
 			r.Post("/tenants/toggle-active", opHandlers.ToggleTenantActive)
 
 			// Roles e Permissões (exclusivo Dono da empresa ativa ou Master)

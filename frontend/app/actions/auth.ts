@@ -53,6 +53,18 @@ export type CompanyFormState =
     }
   | undefined;
 
+export type CompanyEditState =
+  | {
+      ok?: boolean;
+      updatedId?: string;
+      updatedName?: string;
+      emailSent?: boolean;
+      emailWarning?: string;
+      fieldError?: { field: "name" | "cnpj" | "ownerName" | "ownerEmail"; message: string };
+      message?: string;
+    }
+  | undefined;
+
 export type RBACActionState =
   | {
       ok?: boolean;
@@ -534,6 +546,84 @@ export async function deleteRoleAction(formData: FormData): Promise<void> {
   if (!id) return;
   await apiFetch("/api/rbac/roles/delete", { method: "POST", body: { id } });
   revalidatePath("/admin/permissions");
+}
+
+export async function updateCompanyStateAction(
+  _prevState: CompanyEditState,
+  formData: FormData,
+): Promise<CompanyEditState> {
+  const tenantId = text(formData.get("tenantId")).trim();
+  const name = text(formData.get("name")).trim();
+  const rawCnpj = text(formData.get("cnpj")).trim();
+  const ownerName = text(formData.get("ownerName")).trim();
+  const ownerEmail = text(formData.get("ownerEmail")).trim();
+  const active = text(formData.get("active")) !== "false";
+  const resendLink = formData.get("resendLink") === "on";
+
+  if (!tenantId) {
+    return { message: "Empresa inválida." };
+  }
+  if (name.length < 2) {
+    return {
+      fieldError: { field: "name", message: "Informe a razão social da empresa (mínimo 2 caracteres)." },
+    };
+  }
+  const cnpjCheck = validateCNPJ(rawCnpj);
+  if (!cnpjCheck.valid) {
+    return {
+      fieldError: { field: "cnpj", message: cnpjCheck.error ?? "CNPJ inválido." },
+    };
+  }
+  if (ownerName.length < 2) {
+    return {
+      fieldError: { field: "ownerName", message: "Informe o nome do responsável (dono da empresa)." },
+    };
+  }
+  if (!ownerEmail.includes("@")) {
+    return {
+      fieldError: { field: "ownerEmail", message: "Informe um e-mail válido para o responsável." },
+    };
+  }
+
+  try {
+    const res = await apiFetch("/api/tenants/update", {
+      method: "POST",
+      body: {
+        tenantId,
+        name,
+        cnpj: cnpjCheck.formatted,
+        ownerName,
+        ownerEmail,
+        active,
+        resendLink,
+      },
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      id?: string;
+      name?: string;
+      emailSent?: boolean;
+      emailWarning?: string;
+      field?: "name" | "cnpj" | "ownerName" | "ownerEmail";
+      message?: string;
+    };
+    if (!res.ok) {
+      if (data.field) {
+        return { fieldError: { field: data.field, message: data.message ?? "Verifique o campo informado." } };
+      }
+      return { message: data.message ?? "Não foi possível salvar as alterações da empresa." };
+    }
+    revalidatePath("/", "layout");
+    return {
+      ok: true,
+      updatedId: data.id ?? tenantId,
+      updatedName: data.name ?? name,
+      emailSent: data.emailSent,
+      emailWarning: data.emailWarning,
+    };
+  } catch {
+    return { message: OFFLINE };
+  }
 }
 
 export async function toggleTenantActiveAction(formData: FormData): Promise<void> {

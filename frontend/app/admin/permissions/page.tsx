@@ -6,6 +6,9 @@ import { listCompanies, listTenantMembers, listTenantRoles } from "@/lib/operati
 
 export default async function PermissionsPage() {
   const session = await requireSession();
+  if (!session.tenant.id) {
+    redirect(session.user.isMaster ? "/admin/companies" : "/login");
+  }
   if (!canManageAccess(session)) {
     redirect(firstAllowedRoute(session));
   }

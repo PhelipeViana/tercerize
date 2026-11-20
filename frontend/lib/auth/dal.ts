@@ -20,6 +20,9 @@ export function canManageAccess(session: SessionContext): boolean {
 }
 
 export function firstAllowedRoute(session: SessionContext): string {
+  if (session.user.isMaster && !session.tenant.id) {
+    return "/admin/companies";
+  }
   const routes: Array<{ perm: string; href: string }> = [
     { perm: "contracts:view", href: "/admin/contracts" },
     { perm: "service_orders:view", href: "/admin/service-orders" },
@@ -43,6 +46,9 @@ export async function requireSession(): Promise<SessionContext> {
 
 export async function requirePermission(perm: string): Promise<SessionContext> {
   const session = await requireSession();
+  if (!session.tenant.id) {
+    redirect(session.user.isMaster ? "/admin/companies" : "/login");
+  }
   if (!hasPermission(session, perm)) {
     const fallback = firstAllowedRoute(session);
     if (fallback === "/login") redirect("/login");

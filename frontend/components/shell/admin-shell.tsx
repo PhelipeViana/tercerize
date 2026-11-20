@@ -87,10 +87,12 @@ export function AdminShell({
   const [switchedCompanyNotice, setSwitchedCompanyNotice] = useState<string | null>(null);
 
   const isMaster = session.user.isMaster;
+  const hasActiveTenant = Boolean(session.tenant.id);
   const canManageAccess = isMaster || session.role.key === "owner" || Boolean(session.role.permissions["access:manage"]);
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.masterOnly) return isMaster;
+    if (!hasActiveTenant) return false;
     if (item.accessManageOnly) return canManageAccess;
     if (item.permission) {
       return isMaster || session.role.key === "owner" || Boolean(session.role.permissions[item.permission]);
@@ -101,6 +103,7 @@ export function AdminShell({
   const activeCompany = companies.find((c) => c.id === session.tenant.id);
 
   useEffect(() => {
+    if (!session.tenant.id) return;
     try {
       const storageKey = "tercerize_active_tenant_id";
       const prev = window.sessionStorage.getItem(storageKey);
@@ -347,10 +350,15 @@ export function AdminShell({
                   </>
                 )}
               </div>
-            ) : (
+            ) : hasActiveTenant ? (
               <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-slate-300/90 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white shadow-2xs">
                 <span className="size-2 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
                 <span className="max-w-[150px] sm:max-w-[240px] truncate">{session.tenant.name}</span>
+              </span>
+            ) : (
+              <span className="inline-flex min-h-9 items-center gap-2 rounded-full border border-amber-300/90 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-1.5 text-xs font-bold text-amber-800 dark:text-amber-200">
+                <span className="size-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+                <span>Nenhuma empresa cadastrada</span>
               </span>
             )}
 

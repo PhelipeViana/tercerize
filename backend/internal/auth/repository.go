@@ -327,9 +327,14 @@ func (r *Repository) UserCanAccessTenant(ctx context.Context, userID string, isM
 }
 
 func (r *Repository) InsertSession(ctx context.Context, userID, tenantID, tokenHash string, expiresAt time.Time) error {
+	var tenantPtr *string
+	if strings.TrimSpace(tenantID) != "" {
+		t := strings.TrimSpace(tenantID)
+		tenantPtr = &t
+	}
 	_, err := r.pool.Exec(ctx,
 		"INSERT INTO sessions (user_id, active_tenant_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
-		userID, tenantID, tokenHash, expiresAt)
+		userID, tenantPtr, tokenHash, expiresAt)
 	return err
 }
 
@@ -361,11 +366,12 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 
 	err := r.pool.QueryRow(ctx,
 		`SELECT u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_configured_at,
-		        t.id, t.name, t.cnpj, t.owner_name, t.owner_email, t.active,
+		        COALESCE(t.id::text, ''), COALESCE(t.name, ''), COALESCE(t.cnpj, ''),
+		        COALESCE(t.owner_name, ''), COALESCE(t.owner_email, ''), COALESCE(t.active, false),
 		        tr.id::text, tr.key, tr.name, tr.permissions
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
-		   JOIN tenants t ON t.id = s.active_tenant_id
+		   LEFT JOIN tenants t ON t.id = s.active_tenant_id
 		   LEFT JOIN tenant_memberships tm ON tm.tenant_id = t.id AND tm.user_id = u.id
 		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
 		  WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).
@@ -383,7 +389,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 	if s.User.Blocked {
 		return nil, nil
 	}
-	if !s.User.IsMaster && !s.Tenant.Active {
+	if !s.User.IsMaster && (s.Tenant.ID == "" || !s.Tenant.Active) {
 		return nil, nil
 	}
 	s.User.TOTPConfigured = totpConfiguredAt != nil

@@ -98,7 +98,7 @@ func (h *Handlers) CheckLoginEmail(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "verificar empresa ativa do e-mail", err)
 		return
 	}
-	if tenantID == "" {
+	if !user.IsMaster && tenantID == "" {
 		httpx.Message(w, http.StatusForbidden, "Este e-mail não está vinculado a nenhuma empresa ativa.")
 		return
 	}
@@ -162,7 +162,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "resolver empresa padrão do usuário", err)
 		return
 	}
-	if tenantID == "" {
+	if !user.IsMaster && tenantID == "" {
 		httpx.Message(w, http.StatusForbidden, "Este e-mail não está vinculado a nenhuma empresa ativa.")
 		return
 	}
@@ -396,7 +396,7 @@ func (h *Handlers) CompleteSetupLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if tenantID == "" {
+	if !info.IsMaster && tenantID == "" {
 		httpx.Message(w, http.StatusForbidden, "Nenhuma empresa ativa vinculada a este e-mail.")
 		return
 	}

@@ -68,15 +68,17 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
   }>(
     `SELECT u.id AS user_id, u.name AS user_name, u.email AS user_email,
             u.is_master, COALESCE(u.blocked, false) AS user_blocked, u.totp_configured_at,
-            t.id AS tenant_id, t.name AS tenant_name, t.cnpj AS tenant_cnpj,
+            COALESCE(t.id::text, '') AS tenant_id,
+            COALESCE(t.name, '') AS tenant_name,
+            COALESCE(t.cnpj, '') AS tenant_cnpj,
             COALESCE(t.owner_name, '') AS owner_name,
             COALESCE(t.owner_email, '') AS owner_email,
-            t.active AS tenant_active,
+            COALESCE(t.active, false) AS tenant_active,
             tr.id::text AS role_id, tr.key AS role_key, tr.name AS role_name,
             tr.permissions AS role_permissions
        FROM sessions s
        JOIN users u ON u.id = s.user_id
-       JOIN tenants t ON t.id = s.active_tenant_id
+       LEFT JOIN tenants t ON t.id = s.active_tenant_id
        LEFT JOIN tenant_memberships tm ON tm.tenant_id = t.id AND tm.user_id = u.id
        LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
       WHERE s.token_hash = $1 AND s.expires_at > now()`,
@@ -85,7 +87,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
   const row = rows[0];
   if (!row) return null;
   // Desloga imediatamente se o usuário ou a empresa ativa (para não-Master) for bloqueado
-  if (row.user_blocked || (!row.is_master && !row.tenant_active)) {
+  if (row.user_blocked || (!row.is_master && (!row.tenant_id || !row.tenant_active))) {
     return null;
   }
 
