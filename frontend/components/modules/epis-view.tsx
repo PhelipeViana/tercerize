@@ -42,12 +42,10 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
   const [deliveredAt, setDeliveredAt] = useState(getTodayIso);
   const [expiresAt, setExpiresAt] = useState(getOneYearFromNowIso);
 
-  // Evidência ou coleta de assinatura selecionada
   const [selectedDelivery, setSelectedDelivery] = useState<EPIDeliveryRow | null>(null);
   const [signResponsible, setSignResponsible] = useState("");
   const [signProtocol, setSignProtocol] = useState("");
 
-  // QA-02: Contadores reais separados por estado de assinatura e validade
   const signedCount = deliveries.filter((d) => d.receiptSigned).length;
   const pendingCount = deliveries.filter((d) => !d.receiptSigned).length;
   const expiringCount = deliveries.filter((d) => d.daysUntilExpiry <= 30).length;
@@ -69,6 +67,30 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* Cabeçalho com Ação Principal única junto ao título */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+        <div>
+          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Controle de EPIs
+          </h1>
+          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+            Registro de entrega de equipamentos de proteção, validade do CA e evidência de assinatura em {tenantName}.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            firstInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+            setTimeout(() => firstInputRef.current?.focus(), 60);
+          }}
+          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          <span>Registrar entrega</span>
+        </button>
+      </div>
+
       {state?.ok && (
         <div
           role="status"
@@ -78,7 +100,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
             <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
             <span>
               Entrega de EPI ({state.epiName}) registrada em {tenantName} com status:{" "}
-              {state.receiptSigned ? "Termo assinado com comprovante" : "Pendente de assinatura"}.
+              {state.receiptSigned ? "Termo assinado com comprovante" : "Assinatura pendente"}.
             </span>
           </div>
         </div>
@@ -138,7 +160,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
       {/* Main Solid Table Card */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Filtros de conformidade e assinatura */}
+          {/* Filtros neutros de alto contraste */}
           <div
             role="tablist"
             aria-label="Filtro de entregas de EPI"
@@ -151,8 +173,8 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
               onClick={() => setFilterMode("todos")}
               className={`rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer ${
                 filterMode === "todos"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
               Todas ({deliveries.length})
@@ -164,11 +186,11 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
               onClick={() => setFilterMode("pendentes")}
               className={`rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer ${
                 filterMode === "pendentes"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
-              Assinatura pendente ({pendingCount})
+              Assinaturas pendentes ({pendingCount})
             </button>
             <button
               type="button"
@@ -177,11 +199,11 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
               onClick={() => setFilterMode("assinados")}
               className={`rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer ${
                 filterMode === "assinados"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
-              Termo assinado ({signedCount})
+              Termos assinados ({signedCount})
             </button>
             <button
               type="button"
@@ -190,28 +212,16 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
               onClick={() => setFilterMode("vencimento")}
               className={`rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer ${
                 filterMode === "vencimento"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
-              Vencimento CA ({expiringCount})
+              Vencimentos de CA ({expiringCount})
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              firstInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-              setTimeout(() => firstInputRef.current?.focus(), 60);
-            }}
-            className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs sm:text-sm cursor-pointer"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            <span>Registrar entrega</span>
-          </button>
         </div>
 
-        {/* Painel de Evidência ou Coleta de Assinatura (QA-02) */}
+        {/* Painel de Evidência ou Coleta de Assinatura */}
         {selectedDelivery && (
           <div
             role="region"
@@ -229,7 +239,8 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                  Colaborador: <strong>{selectedDelivery.employeeName}</strong> ({selectedDelivery.employeeRole}) · EPI:{" "}
+                  Empresa: <strong>{tenantName}</strong> · Colaborador:{" "}
+                  <strong>{selectedDelivery.employeeName}</strong> ({selectedDelivery.employeeRole}) · EPI:{" "}
                   <strong>{selectedDelivery.epiName}</strong> · CA: <strong>{selectedDelivery.caNumber}</strong>
                 </p>
               </div>
@@ -303,7 +314,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
                 </div>
                 <button
                   type="submit"
-                  className="min-h-9 pill-gradient px-4 py-2 text-xs cursor-pointer"
+                  className="min-h-9 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold px-4 py-2 text-xs cursor-pointer"
                 >
                   Confirmar termo assinado
                 </button>
@@ -344,7 +355,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
                       className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
                     >
                       <RotateCcw className="size-3.5" aria-hidden="true" />
-                      <span>Mostrar todas as entregas</span>
+                      <span>Limpar filtros</span>
                     </button>
                   </td>
                 </tr>
@@ -392,7 +403,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
                             className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] cursor-pointer"
                           >
                             <FileCheck2 className="size-3.5 text-emerald-600" aria-hidden="true" />
-                            <span>Ver evidência</span>
+                            <span>Abrir evidência</span>
                           </button>
                         ) : (
                           <button
@@ -563,10 +574,10 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
             <button
               type="submit"
               disabled={pending}
-              className="min-h-10 pill-gradient py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
             >
               {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-              <span>Salvar entrega de EPI</span>
+              <span>Salvar entrega em {tenantName}</span>
             </button>
           </div>
         </form>

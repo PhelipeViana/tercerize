@@ -26,6 +26,7 @@ export default async function InventoryItemsPage() {
       current="inventory-items"
       title="Almoxarifado e ativos"
       subtitle="Controle transacional de saldo, operações adaptadas por categoria, vínculo com OS e histórico de cautelas."
+      hideHeader
     >
       <InventoryView
         tenantName={session.tenant.name}

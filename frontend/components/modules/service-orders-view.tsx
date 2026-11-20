@@ -44,6 +44,12 @@ function getDefaultScheduleDateTime(): string {
   return `${yyyy}-${mm}-${dd}T09:00`;
 }
 
+function isoDateToBR(isoDate: string): string {
+  if (!isoDate || !isoDate.includes("-")) return "";
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export function ServiceOrdersView({
   tenantName,
   orders,
@@ -68,16 +74,21 @@ export function ServiceOrdersView({
   const [initialStatus, setInitialStatus] = useState<"Agendada" | "Em Execução">("Agendada");
   const [scheduledFor, setScheduledFor] = useState(getDefaultScheduleDateTime);
 
-  // Filters
+  // Filters: Técnico, Situação, Data e Busca
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [techFilter, setTechFilter] = useState<string>("todos");
+  const [dateFilter, setDateFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedOS, setSelectedOS] = useState<ServiceOrderRow | null>(null);
+  const [selectedOSId, setSelectedOSId] = useState<string | null>(null);
+
+  const selectedOS = useMemo(
+    () => orders.find((o) => o.id === selectedOSId) ?? null,
+    [orders, selectedOSId],
+  );
 
   const emExecucao = orders.filter((o) => o.status === "Em Execução").length;
   const agendadas = orders.filter((o) => o.status === "Agendada").length;
   const concluidas = orders.filter((o) => o.status === "Concluída").length;
-  // QA-05: Chamados ativos = soma real dos estados operacionais ativos (Agendada + Em Execução)
   const chamadosAtivos = emExecucao + agendadas;
 
   const clientContracts = useMemo(
@@ -85,30 +96,40 @@ export function ServiceOrdersView({
     [contracts, selectedClientId],
   );
 
-  const hasFilters = statusFilter !== "todos" || techFilter !== "todos" || searchQuery.trim() !== "";
+  const hasFilters =
+    statusFilter !== "todos" ||
+    techFilter !== "todos" ||
+    dateFilter !== "" ||
+    searchQuery.trim() !== "";
+
   const clearFilters = () => {
     setStatusFilter("todos");
     setTechFilter("todos");
+    setDateFilter("");
     setSearchQuery("");
   };
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const brDate = isoDateToBR(dateFilter);
     return orders.filter((o) => {
       if (statusFilter === "ativos" && o.status === "Concluída") return false;
       if (statusFilter !== "todos" && statusFilter !== "ativos" && o.status !== statusFilter) return false;
       if (techFilter !== "todos" && (o.employeeId ?? "sem-tecnico") !== techFilter) return false;
+      if (brDate) {
+        const matchesCreated = (o.createdAt ?? "").includes(brDate);
+        const matchesScheduled = (o.scheduledFor ?? "").includes(brDate);
+        if (!matchesCreated && !matchesScheduled) return false;
+      }
       if (!q) return true;
       return (
         o.code.toLowerCase().includes(q) ||
         o.clientName.toLowerCase().includes(q) ||
         (o.employeeName ?? "").toLowerCase().includes(q) ||
-        o.description.toLowerCase().includes(q) ||
-        (o.createdAt ?? "").toLowerCase().includes(q) ||
-        (o.scheduledFor ?? "").toLowerCase().includes(q)
+        o.description.toLowerCase().includes(q)
       );
     });
-  }, [orders, statusFilter, techFilter, searchQuery]);
+  }, [orders, statusFilter, techFilter, dateFilter, searchQuery]);
 
   const focusNewOrderForm = () => {
     firstInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -117,18 +138,21 @@ export function ServiceOrdersView({
 
   return (
     <div className="space-y-5">
-      {/* Barra superior com ação principal que foca o primeiro campo */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl solid-surface px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-          <Building2 className="size-4 text-[#3B68F7] dark:text-blue-400 shrink-0" aria-hidden="true" />
-          <span>
-            Fila operacional da empresa <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
-          </span>
+      {/* Cabeçalho com Ação Principal única junto ao título */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+        <div>
+          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Ordens de serviço
+          </h1>
+          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+            Despacho de chamados, agendamento com data e hora, alocação técnica e progressão em {tenantName}.
+          </p>
         </div>
+
         <button
           type="button"
           onClick={focusNewOrderForm}
-          className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
         >
           <Plus className="size-4" aria-hidden="true" />
           <span>Nova ordem</span>
@@ -143,8 +167,8 @@ export function ServiceOrdersView({
           <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
             <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
             <span>
-              Ordem de serviço {state.code.replace("#", "")} aberta com sucesso em {tenantName}! Acompanhe o andamento
-              e a próxima ação na tabela abaixo.
+              Ordem de serviço {state.code.replace("#", "")} aberta com sucesso em {tenantName}! Acompanhe a situação e
+              a próxima ação na tabela ou no detalhe.
             </span>
           </div>
         </div>
@@ -204,31 +228,29 @@ export function ServiceOrdersView({
       {/* Main Solid Table Section */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-1.5 text-xs font-bold">
-              Fila de execução
-            </span>
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 tabular-nums">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Fila de execução</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
               <strong>{chamadosAtivos}</strong> chamado(s) ativo(s) · {orders.length} no histórico total
-            </span>
+            </p>
           </div>
 
-          {/* Filtros por busca/data, técnico e situação */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="relative min-w-[210px]">
+          {/* Filtros por técnico, situação, data e busca */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[180px]">
               <Search
                 className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400"
                 aria-hidden="true"
               />
               <label htmlFor="os-search" className="sr-only">
-                Buscar por código, cliente, descrição ou data
+                Buscar por código, cliente ou descrição
               </label>
               <input
                 id="os-search"
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar código, cliente ou data…"
+                placeholder="Código ou cliente…"
                 className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 pl-9 pr-3.5 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               />
             </div>
@@ -270,10 +292,35 @@ export function ServiceOrdersView({
                 <option value="Concluída">Concluída ({concluidas})</option>
               </select>
             </div>
+
+            <div>
+              <label htmlFor="os-filter-date" className="sr-only">
+                Filtrar por data
+              </label>
+              <input
+                id="os-filter-date"
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                title="Filtrar ordens por data de abertura ou agendamento"
+                className="rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              />
+            </div>
+
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                <RotateCcw className="size-3" aria-hidden="true" />
+                <span>Limpar filtros</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Painel de detalhe da OS selecionada */}
+        {/* Painel de detalhe da OS selecionada com Situação e Próxima Ação */}
         {selectedOS && (
           <div
             role="region"
@@ -281,12 +328,15 @@ export function ServiceOrdersView({
             className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-950/30 p-4 flex flex-wrap items-center justify-between gap-4 text-xs"
           >
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-extrabold text-slate-900 dark:text-white">
                   {selectedOS.code.replace("#", "")} · {selectedOS.clientName}
                 </span>
                 <span className="rounded-full bg-white dark:bg-slate-800 px-2.5 py-0.5 font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10">
-                  {selectedOS.status}
+                  Situação: {selectedOS.status}
+                </span>
+                <span className="rounded-full bg-white dark:bg-slate-800 px-2.5 py-0.5 font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10">
+                  Prioridade: {selectedOS.priority}
                 </span>
               </div>
               <p className="text-slate-600 dark:text-slate-300">
@@ -294,18 +344,48 @@ export function ServiceOrdersView({
                 <strong>Contrato/Unidade:</strong>{" "}
                 {selectedOS.contractCode
                   ? `${selectedOS.contractCode.replace("#", "")} (${selectedOS.workstation ?? "Unidade principal"})`
-                  : "Atendimento avulso"}{" "}
+                  : "Atendimento geral"}{" "}
                 · <strong>Técnico:</strong> {selectedOS.employeeName || "Aguardando designação"}
+                {selectedOS.scheduledFor ? ` · Programada: ${selectedOS.scheduledFor}` : ""}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedOS(null)}
-              aria-label="Fechar detalhes da OS"
-              className="rounded-full p-1.5 text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </button>
+
+            <div className="flex items-center gap-2">
+              {selectedOS.status !== "Concluída" && (
+                <form action={updateServiceOrderStatusAction} className="inline-flex">
+                  <input type="hidden" name="id" value={selectedOS.id} />
+                  <input
+                    type="hidden"
+                    name="status"
+                    value={selectedOS.status === "Agendada" ? "Em Execução" : "Concluída"}
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-1.5 text-xs font-bold cursor-pointer"
+                  >
+                    {selectedOS.status === "Agendada" ? (
+                      <>
+                        <Play className="size-3" aria-hidden="true" />
+                        <span>Próxima ação: Iniciar</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="size-3" aria-hidden="true" />
+                        <span>Próxima ação: Concluir</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedOSId(null)}
+                aria-label="Fechar detalhes da OS"
+                className="rounded-full p-1.5 text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -327,7 +407,7 @@ export function ServiceOrdersView({
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center space-y-2">
                     <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      Nenhuma ordem de serviço aberta em {tenantName}
+                      Nenhuma ordem de serviço cadastrada em {tenantName}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       Utilize o formulário abaixo para despachar a primeira ordem de serviço desta empresa.
@@ -338,7 +418,7 @@ export function ServiceOrdersView({
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center space-y-2.5">
                     <p className="text-sm font-bold text-slate-900 dark:text-white">
-                      Nenhuma ordem de serviço encontrada para os filtros selecionados
+                      Nenhuma ordem de serviço encontrada
                     </p>
                     {hasFilters && (
                       <button
@@ -358,7 +438,7 @@ export function ServiceOrdersView({
                     <td className="px-4 py-4 font-bold tabular-nums">
                       <button
                         type="button"
-                        onClick={() => setSelectedOS(os)}
+                        onClick={() => setSelectedOSId(os.id)}
                         className="text-[#3B68F7] dark:text-blue-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] rounded cursor-pointer"
                       >
                         {os.code.replace("#", "")}
@@ -467,7 +547,8 @@ export function ServiceOrdersView({
               Vincule o cliente tomador, contrato/unidade, técnico alocado e data/hora quando agendada.
             </p>
           </div>
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <Building2 className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
             Empresa ativa: <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
           </span>
         </div>
@@ -488,7 +569,7 @@ export function ServiceOrdersView({
             </span>
             <Link
               href="/admin/contracts?tab=clientes#novo-cliente"
-              className="inline-flex min-h-9 items-center gap-1.5 pill-gradient px-4 py-1.5 text-xs"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold px-4 py-1.5 text-xs"
             >
               <Plus className="size-3.5" aria-hidden="true" />
               <span>Cadastrar cliente</span>
@@ -626,10 +707,10 @@ export function ServiceOrdersView({
               <button
                 type="submit"
                 disabled={pending}
-                className="w-full min-h-10 pill-gradient py-2.5 px-5 text-xs inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-5 text-xs inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               >
                 {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-                <span>Abrir ordem de serviço</span>
+                <span>Abrir ordem em {tenantName}</span>
               </button>
             </div>
           </form>

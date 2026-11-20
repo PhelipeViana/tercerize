@@ -47,7 +47,6 @@ export function InventoryView({
   const [selectedItemId, setSelectedItemId] = useState(items[0]?.id ?? "");
   const selectedItem = items.find((i) => i.id === selectedItemId) ?? items[0];
 
-  // Operações permitidas ajustadas conforme a categoria do item selecionado
   const allowedOperations = useMemo(() => {
     if (!selectedItem) {
       return [
@@ -100,13 +99,15 @@ export function InventoryView({
 
   return (
     <div className="space-y-5">
-      {/* Barra de ações distintas: Movimentar estoque vs. Novo item */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl solid-surface px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-          <Building2 className="size-4 text-[#3B68F7] dark:text-blue-400 shrink-0" aria-hidden="true" />
-          <span>
-            Almoxarifado da empresa <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
-          </span>
+      {/* Cabeçalho com Ações Distintas posicionadas junto ao título */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+        <div>
+          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Almoxarifado e ativos
+          </h1>
+          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+            Controle de saldo, operações por categoria, seletor de OS e cautelas em {tenantName}.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
@@ -116,7 +117,7 @@ export function InventoryView({
               setActivePanel("movimentar");
               document.getElementById("painel-operacao")?.scrollIntoView({ behavior: "smooth" });
             }}
-            className={`inline-flex min-h-10 items-center gap-2 px-5 py-2 text-xs sm:text-sm cursor-pointer transition-colors ${
+            className={`inline-flex min-h-11 items-center gap-2 px-5 py-2.5 text-xs sm:text-sm cursor-pointer transition-colors ${
               activePanel === "movimentar"
                 ? "pill-gradient"
                 : "rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-white"
@@ -132,7 +133,7 @@ export function InventoryView({
               setActivePanel("novo-item");
               document.getElementById("painel-operacao")?.scrollIntoView({ behavior: "smooth" });
             }}
-            className={`inline-flex min-h-10 items-center gap-2 px-5 py-2 text-xs sm:text-sm cursor-pointer transition-colors ${
+            className={`inline-flex min-h-11 items-center gap-2 px-5 py-2.5 text-xs sm:text-sm cursor-pointer transition-colors ${
               activePanel === "novo-item"
                 ? "pill-gradient"
                 : "rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-white"
@@ -196,9 +197,9 @@ export function InventoryView({
       {/* Posição atual de estoque */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-1.5 text-xs font-bold">
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Posição atual de estoque ({items.length})
-          </span>
+          </h2>
         </div>
 
         <div className="overflow-x-auto">
@@ -211,7 +212,7 @@ export function InventoryView({
                 <th className="px-4 py-3.5">Saldo disponível</th>
                 <th className="px-4 py-3.5">Valor unitário</th>
                 <th className="px-4 py-3.5">Nível</th>
-                <th className="rounded-r-xl px-4 py-3.5 text-right">Ação rápida</th>
+                <th className="rounded-r-xl px-4 py-3.5 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
@@ -287,8 +288,8 @@ export function InventoryView({
               onClick={() => setActivePanel("movimentar")}
               className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
                 activePanel === "movimentar"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
               Movimentar estoque
@@ -300,15 +301,16 @@ export function InventoryView({
               onClick={() => setActivePanel("novo-item")}
               className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
                 activePanel === "novo-item"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
               }`}
             >
-              Novo item ou ferramenta
+              Novo item
             </button>
           </div>
 
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <Building2 className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
             Empresa ativa: <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
           </span>
         </div>
@@ -381,8 +383,8 @@ export function InventoryView({
                     Quantidade *
                   </label>
                   {selectedItem && (
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      Disponível: {currentBalance} {selectedItem.unit}
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      Saldo disponível: {currentBalance} {selectedItem.unit}
                     </span>
                   )}
                 </div>
@@ -401,17 +403,10 @@ export function InventoryView({
                       : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
                   }`}
                 />
-                {selectedItem && (
-                  <p
-                    className={`pl-2 text-[11px] font-semibold ${
-                      exceedsBalance
-                        ? "text-rose-600 dark:text-rose-400"
-                        : "text-slate-600 dark:text-slate-300"
-                    }`}
-                  >
-                    {exceedsBalance
-                      ? `Saldo insuficiente: solicitado ${parsedQty} ${selectedItem.unit}, mas o estoque possui apenas ${currentBalance} ${selectedItem.unit}.`
-                      : `Prévia de saldo: ${currentBalance} ${selectedItem.unit} → ${expectedBalance} ${selectedItem.unit} após confirmar.`}
+                {selectedItem && exceedsBalance && (
+                  <p role="alert" className="pl-2 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                    Saldo insuficiente: solicitado {parsedQty} {selectedItem.unit}, disponível {currentBalance}{" "}
+                    {selectedItem.unit}. Corrija a quantidade para prosseguir.
                   </p>
                 )}
               </div>
@@ -474,16 +469,32 @@ export function InventoryView({
               </div>
             </div>
 
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                disabled={movPending}
-                className="min-h-10 pill-gradient py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-              >
-                {movPending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-                <span>Confirmar movimentação em {tenantName}</span>
-              </button>
-            </div>
+            {/* Resumo pré-confirmação repetindo nome da empresa, item e mudança esperada */}
+            {selectedItem && (
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="text-slate-700 dark:text-slate-200">
+                  <strong>Confirmação para {tenantName}:</strong> {movementType} de{" "}
+                  <strong>
+                    {parsedQty} {selectedItem.unit}
+                  </strong>{" "}
+                  do item <strong>{selectedItem.sku}</strong> ({selectedItem.description}).{" "}
+                  <span className={exceedsBalance ? "text-rose-600 font-bold" : "font-bold"}>
+                    Mudança esperada no saldo: {currentBalance} {selectedItem.unit} → {expectedBalance}{" "}
+                    {selectedItem.unit}
+                  </span>
+                  .
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={movPending}
+                  className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                >
+                  {movPending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+                  <span>Confirmar movimentação em {tenantName}</span>
+                </button>
+              </div>
+            )}
           </form>
         ) : (
           <form action={itemAction} className="space-y-4">
@@ -596,10 +607,10 @@ export function InventoryView({
               <button
                 type="submit"
                 disabled={itemPending}
-                className="min-h-10 pill-gradient py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               >
                 {itemPending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-                <span>Salvar item no estoque</span>
+                <span>Salvar item em {tenantName}</span>
               </button>
             </div>
           </form>
@@ -609,16 +620,18 @@ export function InventoryView({
       {/* Histórico auditável com Saldo anterior -> Alteração -> Saldo final */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-bold text-slate-900 dark:text-white">
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Histórico de movimentações e cautelas ({filteredMovements.length})
-          </span>
+          </h2>
 
           <div className="inline-flex items-center rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-800 p-1">
             <button
               type="button"
               onClick={() => setHistoryFilter("todos")}
               className={`rounded-full px-4 py-1 text-xs cursor-pointer ${
-                historyFilter === "todos" ? "pill-gradient" : "font-medium text-slate-700 dark:text-slate-300"
+                historyFilter === "todos"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300"
               }`}
             >
               Todas ({movements.length})
@@ -627,7 +640,9 @@ export function InventoryView({
               type="button"
               onClick={() => setHistoryFilter("cautelas")}
               className={`rounded-full px-4 py-1 text-xs cursor-pointer ${
-                historyFilter === "cautelas" ? "pill-gradient" : "font-medium text-slate-700 dark:text-slate-300"
+                historyFilter === "cautelas"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300"
               }`}
             >
               Cautelas e devoluções

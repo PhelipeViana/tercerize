@@ -104,6 +104,37 @@ export function ContractsView({
 
   return (
     <div className="space-y-5">
+      {/* Cabeçalho com Ação Principal única posicionada junto ao título e dinâmica conforme a aba ativa */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+        <div>
+          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Clientes e contratos
+          </h1>
+          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+            Gerencie clientes tomadores, contratos ativos, postos de trabalho e vigências em {tenantName}.
+          </p>
+        </div>
+
+        {tab === "contratos" ? (
+          <Link
+            href="/admin/contracts/create"
+            className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            <span>Novo contrato</span>
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={focusNewClientForm}
+            className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            <span>Novo cliente</span>
+          </button>
+        )}
+      </div>
+
       {/* Banner pós-cadastro público (Passo 1 -> Passo 2) */}
       {welcome && (
         <div
@@ -124,7 +155,7 @@ export function ContractsView({
           <button
             type="button"
             onClick={focusNewClientForm}
-            className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs cursor-pointer"
+            className="inline-flex min-h-10 items-center gap-2 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold px-5 py-2 text-xs cursor-pointer"
           >
             <Plus className="size-3.5" aria-hidden="true" />
             <span>Cadastrar primeiro cliente</span>
@@ -240,7 +271,7 @@ export function ContractsView({
       {/* Main Solid Container for High-Contrast Reading */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* Segmented Pill Tabs */}
+          {/* Segmented Pill Tabs (neutras para reservar o azul para a ação principal) */}
           <div
             role="tablist"
             aria-label="Visualização de contratos e clientes"
@@ -253,8 +284,8 @@ export function ContractsView({
               onClick={() => setTab("contratos")}
               className={`rounded-full px-5 py-2 text-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${
                 tab === "contratos"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white"
               }`}
             >
               Contratos ({contracts.length})
@@ -266,15 +297,15 @@ export function ContractsView({
               onClick={() => setTab("clientes")}
               className={`rounded-full px-5 py-2 text-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${
                 tab === "clientes"
-                  ? "pill-gradient"
-                  : "font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white"
               }`}
             >
               Clientes ({clients.length})
             </button>
           </div>
 
-          {/* Search, Status Filter & Contextual Primary Action per Tab */}
+          {/* Search & Status Filters */}
           <div className="flex flex-wrap items-center gap-3 flex-1 sm:flex-initial justify-end">
             <div className="relative min-w-[240px] sm:w-72">
               <Search
@@ -300,46 +331,27 @@ export function ContractsView({
               />
             </div>
 
-            {tab === "contratos" ? (
-              <>
-                <div className="relative">
-                  <label htmlFor="contracts-status" className="sr-only">
-                    Filtrar por situação
-                  </label>
-                  <select
-                    id="contracts-status"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="appearance-none rounded-full border border-slate-200 dark:border-white/15 bg-slate-50/90 dark:bg-slate-800 pl-4 pr-9 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] cursor-pointer"
-                  >
-                    <option value="todos">Situação: Todas</option>
-                    <option value="ativo">Ativo</option>
-                    <option value="suspenso">Suspenso</option>
-                    <option value="encerrado">Encerrado</option>
-                  </select>
-                  <ChevronDown
-                    className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-500"
-                    aria-hidden="true"
-                  />
-                </div>
-
-                <Link
-                  href="/admin/contracts/create"
-                  className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+            {tab === "contratos" && (
+              <div className="relative">
+                <label htmlFor="contracts-status" className="sr-only">
+                  Filtrar por situação
+                </label>
+                <select
+                  id="contracts-status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="appearance-none rounded-full border border-slate-200 dark:border-white/15 bg-slate-50/90 dark:bg-slate-800 pl-4 pr-9 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] cursor-pointer"
                 >
-                  <Plus className="size-4" aria-hidden="true" />
-                  <span>Novo contrato</span>
-                </Link>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={focusNewClientForm}
-                className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                <span>Novo cliente</span>
-              </button>
+                  <option value="todos">Situação: Todas</option>
+                  <option value="ativo">Ativo</option>
+                  <option value="suspenso">Suspenso</option>
+                  <option value="encerrado">Encerrado</option>
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-500"
+                  aria-hidden="true"
+                />
+              </div>
             )}
           </div>
         </div>
@@ -436,7 +448,7 @@ export function ContractsView({
             <div className="flex items-center gap-2">
               <Link
                 href={`/admin/contracts/create?clientId=${encodeURIComponent(selectedClient.id)}`}
-                className="inline-flex min-h-9 items-center gap-1.5 pill-gradient px-4 py-1.5 text-xs"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold px-4 py-1.5 text-xs"
               >
                 <Plus className="size-3.5" aria-hidden="true" />
                 <span>Criar contrato para este cliente</span>
@@ -473,19 +485,19 @@ export function ContractsView({
                     <td colSpan={7} className="px-4 py-12 text-center">
                       <div className="mx-auto max-w-md space-y-3">
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          Nenhum contrato cadastrado na empresa {tenantName}
+                          Nenhum contrato cadastrado
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                           {clients.length === 0
-                            ? "Para iniciar a operação, cadastre primeiro um cliente tomador e em seguida vincule o contrato."
-                            : "Você já possui cliente(s) cadastrado(s). Crie agora o primeiro contrato desta empresa."}
+                            ? `A empresa ${tenantName} ainda não possui clientes nem contratos. Cadastre primeiro o cliente tomador.`
+                            : `Você já possui cliente(s) cadastrado(s) em ${tenantName}. Crie agora o primeiro contrato.`}
                         </p>
                         <div className="pt-1">
                           {clients.length === 0 ? (
                             <button
                               type="button"
                               onClick={focusNewClientForm}
-                              className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs cursor-pointer"
+                              className="inline-flex min-h-10 items-center gap-2 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold px-5 py-2 text-xs cursor-pointer"
                             >
                               <Plus className="size-3.5" aria-hidden="true" />
                               <span>Cadastrar primeiro cliente</span>
@@ -493,7 +505,7 @@ export function ContractsView({
                           ) : (
                             <Link
                               href="/admin/contracts/create"
-                              className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs"
+                              className="inline-flex min-h-10 items-center gap-2 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold px-5 py-2 text-xs"
                             >
                               <Plus className="size-3.5" aria-hidden="true" />
                               <span>Criar primeiro contrato</span>
@@ -580,15 +592,20 @@ export function ContractsView({
                     <th className="rounded-l-xl px-4 py-3.5">Cliente tomador</th>
                     <th className="px-4 py-3.5">CNPJ</th>
                     <th className="px-4 py-3.5">Contato</th>
-                    <th className="rounded-r-xl px-4 py-3.5 text-right">Ação</th>
+                    <th className="rounded-r-xl px-4 py-3.5 text-right">Próximo passo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
                   {clients.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-xs text-slate-500 dark:text-slate-400">
-                        Nenhum cliente cadastrado em <strong>{tenantName}</strong>. Utilize o formulário ao lado para
-                        registrar o primeiro cliente tomador.
+                      <td colSpan={4} className="px-4 py-10 text-center space-y-2">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">
+                          Nenhum cliente cadastrado
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Utilize o formulário ao lado para cadastrar o primeiro cliente tomador da empresa{" "}
+                          <strong>{tenantName}</strong>.
+                        </p>
                       </td>
                     </tr>
                   ) : filteredClients.length === 0 ? (
@@ -604,7 +621,7 @@ export function ContractsView({
                             className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
                           >
                             <RotateCcw className="size-3.5" aria-hidden="true" />
-                            <span>Limpar busca</span>
+                            <span>Limpar filtros</span>
                           </button>
                         )}
                       </td>
@@ -631,7 +648,7 @@ export function ContractsView({
                             className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-800 dark:text-white hover:border-[#3B68F7]"
                           >
                             <Plus className="size-3" aria-hidden="true" />
-                            <span>Contrato</span>
+                            <span>Criar contrato</span>
                           </Link>
                         </td>
                       </tr>
@@ -734,7 +751,7 @@ export function ContractsView({
               <button
                 type="submit"
                 disabled={clientPending}
-                className="w-full min-h-10 pill-gradient py-2.5 px-5 text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-5 text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               >
                 {clientPending ? (
                   <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />

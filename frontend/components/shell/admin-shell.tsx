@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -8,6 +8,7 @@ import {
   Building2,
   Calendar,
   Check,
+  CheckCircle2,
   ChevronDown,
   ClipboardList,
   Layers,
@@ -61,6 +62,7 @@ interface AdminShellProps {
   title: string;
   subtitle: string;
   action?: ReactNode;
+  hideHeader?: boolean;
   children: ReactNode;
 }
 
@@ -71,15 +73,31 @@ export function AdminShell({
   title,
   subtitle,
   action,
+  hideHeader = false,
   children,
 }: AdminShellProps) {
   const [open, setOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState("");
+  const [switchedCompanyNotice, setSwitchedCompanyNotice] = useState<string | null>(null);
 
   const isDev = session.user.role === "developer";
   const visibleItems = NAV_ITEMS.filter((item) => !item.devOnly || isDev);
   const activeCompany = companies.find((c) => c.id === session.tenant.id);
+
+  // Confirma visualmente a troca de empresa com o nome e CNPJ da empresa ativa
+  useEffect(() => {
+    try {
+      const storageKey = "tercerize_active_tenant_id";
+      const prev = window.sessionStorage.getItem(storageKey);
+      if (prev && prev !== session.tenant.id) {
+        setSwitchedCompanyNotice(`${session.tenant.name} (CNPJ: ${session.tenant.cnpj})`);
+      }
+      window.sessionStorage.setItem(storageKey, session.tenant.id);
+    } catch {
+      // ignore storage errors
+    }
+  }, [session.tenant.id, session.tenant.name, session.tenant.cnpj]);
 
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
@@ -133,14 +151,16 @@ export function AdminShell({
                     className={cn(
                       "flex w-full items-center gap-3.5 px-4 py-3 text-[14px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]",
                       isActive
-                        ? "pill-gradient"
+                        ? "rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold shadow-xs"
                         : "rounded-2xl font-medium text-slate-700 dark:text-slate-300 hover:bg-white/75 dark:hover:bg-white/5 hover:text-slate-950 dark:hover:text-white",
                     )}
                   >
                     <Icon
                       className={cn(
                         "size-[19px] shrink-0 stroke-[1.8]",
-                        isActive ? "text-white" : "text-slate-700 dark:text-slate-300",
+                        isActive
+                          ? "text-white dark:text-slate-900"
+                          : "text-slate-700 dark:text-slate-300",
                       )}
                       aria-hidden="true"
                     />
@@ -156,7 +176,7 @@ export function AdminShell({
         <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-white/10 px-3 py-2.5">
           <div
             aria-hidden="true"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#3B68F7] to-[#5346E8] text-white font-bold text-sm shadow-xs"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-blue-600 text-white font-bold text-sm shadow-xs"
           >
             {session.user.name.charAt(0).toUpperCase()}
           </div>
@@ -195,9 +215,9 @@ export function AdminShell({
               <Menu className="size-4.5" aria-hidden="true" />
             </button>
 
-            <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="hidden lg:flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
               <Building2 className="size-3.5 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
-              <span>Ambiente operacional isolado por empresa</span>
+              <span>Contexto isolado por empresa</span>
             </div>
           </div>
 
@@ -316,18 +336,44 @@ export function AdminShell({
 
         {/* Scrollable Content */}
         <main className="flex-1 overflow-y-auto pr-1 space-y-5">
-          {/* Page Title & Pill Action Row */}
-          <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
-            <div>
-              <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
-                {title}
-              </h1>
-              <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
-                {subtitle}
-              </p>
+          {/* Confirmação visual ao alternar de empresa */}
+          {switchedCompanyNotice && (
+            <div
+              role="status"
+              className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/95 dark:bg-emerald-950/60 px-4 py-3 flex items-center justify-between gap-3 text-xs"
+            >
+              <div className="flex items-center gap-2.5 font-semibold text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                <span>
+                  Empresa ativa alterada para <strong>{switchedCompanyNotice}</strong>. Todos os cadastros e listas
+                  abaixo pertencem a este contexto.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSwitchedCompanyNotice(null)}
+                aria-label="Fechar aviso de troca de empresa"
+                className="rounded-full p-1 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200/50 cursor-pointer"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
             </div>
-            {action}
-          </div>
+          )}
+
+          {/* Page Title & Pill Action Row */}
+          {!hideHeader && (
+            <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+              <div>
+                <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+                  {title}
+                </h1>
+                <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+                  {subtitle}
+                </p>
+              </div>
+              {action}
+            </div>
+          )}
 
           {/* Trilha guiada da primeira operação quando a empresa ativa está em implantação */}
           <OnboardingBanner activeCompany={activeCompany} tenantName={session.tenant.name} />

@@ -30,6 +30,7 @@ export default async function ContractsPage({ searchParams }: PageProps) {
       current="contracts"
       title="Clientes e contratos"
       subtitle="Gerencie clientes tomadores, contratos ativos, postos de trabalho e vigências."
+      hideHeader
     >
       <ContractsView
         tenantName={session.tenant.name}

@@ -1,21 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const jakartaSans = Plus_Jakarta_Sans({
-  variable: "--font-jakarta-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Tercerize — Plataforma de gestão de terceirização e serviços",
-  description: "Rastreabilidade completa de contratos, colaboradores, EPIs, almoxarifado, ordens de serviço e financeiro.",
+  description:
+    "Rastreabilidade completa de contratos, colaboradores, EPIs, almoxarifado, ordens de serviço e financeiro.",
 };
 
 export const viewport: Viewport = {
@@ -40,9 +29,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${jakartaSans.variable} ${geistMono.variable} h-full antialiased`}
+      className="h-full antialiased"
+      style={
+        {
+          "--font-jakarta-sans":
+            '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          "--font-geist-mono":
+            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        } as React.CSSProperties
+      }
     >
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="h-full selection:bg-[#3B68F7] selection:text-white">{children}</body>

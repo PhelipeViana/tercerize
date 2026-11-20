@@ -21,14 +21,14 @@ function parseBRLNumber(raw: string): number {
 
 export type ClientActionState =
   | {
-      ok?: boolean;
-      clientId?: string;
-      clientName?: string;
-      clientCnpj?: string;
-      fieldError?: { field: "name" | "cnpj"; message: string };
-      error?: string;
-      values?: { name?: string; cnpj?: string; contact?: string };
-    }
+    ok?: boolean;
+    clientId?: string;
+    clientName?: string;
+    clientCnpj?: string;
+    fieldError?: { field: "name" | "cnpj"; message: string };
+    error?: string;
+    values?: { name?: string; cnpj?: string; contact?: string };
+  }
   | undefined;
 
 export async function createClientStateAction(
@@ -97,17 +97,17 @@ export async function createClientAction(formData: FormData): Promise<void> {
 
 export type ContractActionState =
   | {
-      fieldError?: { field: string; message: string };
-      error?: string;
-      values?: {
-        clientId?: string;
-        object?: string;
-        durationMonths?: string;
-        monthlyValue?: string;
-        workstation?: string;
-        scopeNotes?: string;
-      };
-    }
+    fieldError?: { field: string; message: string };
+    error?: string;
+    values?: {
+      clientId?: string;
+      object?: string;
+      durationMonths?: string;
+      monthlyValue?: string;
+      workstation?: string;
+      scopeNotes?: string;
+    };
+  }
   | undefined;
 
 export async function createContractStateAction(
@@ -194,13 +194,13 @@ export async function createContractAction(formData: FormData): Promise<void> {
 
 export type EmployeeActionState =
   | {
-      ok?: boolean;
-      employeeId?: string;
-      employeeName?: string;
-      contractId?: string;
-      clientId?: string;
-      error?: string;
-    }
+    ok?: boolean;
+    employeeId?: string;
+    employeeName?: string;
+    contractId?: string;
+    clientId?: string;
+    error?: string;
+  }
   | undefined;
 
 export async function createEmployeeStateAction(
@@ -266,11 +266,11 @@ export async function updateEmployeeScheduleAction(formData: FormData): Promise<
 
 export type EPIActionState =
   | {
-      ok?: boolean;
-      epiName?: string;
-      receiptSigned?: boolean;
-      error?: string;
-    }
+    ok?: boolean;
+    epiName?: string;
+    receiptSigned?: boolean;
+    error?: string;
+  }
   | undefined;
 
 export async function createEPIStateAction(
@@ -332,19 +332,19 @@ export async function signEPIAction(formData: FormData): Promise<void> {
 
 export type InventoryMovementState =
   | {
-      ok?: boolean;
-      message?: string;
-      error?: string;
-      field?: string;
-      values?: {
-        itemId?: string;
-        movementType?: string;
-        quantity?: string;
-        employeeId?: string;
-        serviceOrderId?: string;
-        notes?: string;
-      };
-    }
+    ok?: boolean;
+    message?: string;
+    error?: string;
+    field?: string;
+    values?: {
+      itemId?: string;
+      movementType?: string;
+      quantity?: string;
+      employeeId?: string;
+      serviceOrderId?: string;
+      notes?: string;
+    };
+  }
   | undefined;
 
 export async function createInventoryMovementStateAction(
@@ -417,10 +417,10 @@ export async function createInventoryMovementAction(formData: FormData): Promise
 
 export type InventoryItemState =
   | {
-      ok?: boolean;
-      sku?: string;
-      error?: string;
-    }
+    ok?: boolean;
+    sku?: string;
+    error?: string;
+  }
   | undefined;
 
 export async function createInventoryItemStateAction(
@@ -461,10 +461,10 @@ export async function createInventoryItemAction(formData: FormData): Promise<voi
 
 export type ServiceOrderActionState =
   | {
-      ok?: boolean;
-      code?: string;
-      error?: string;
-    }
+    ok?: boolean;
+    code?: string;
+    error?: string;
+  }
   | undefined;
 
 export async function createServiceOrderStateAction(
@@ -518,18 +518,18 @@ export async function updateServiceOrderStatusAction(formData: FormData): Promis
 
 export type FinancialEntryState =
   | {
-      ok?: boolean;
-      error?: string;
-      field?: string;
-      values?: {
-        entryType?: string;
-        contractId?: string;
-        description?: string;
-        amount?: string;
-        dueDate?: string;
-        status?: string;
-      };
-    }
+    ok?: boolean;
+    error?: string;
+    field?: string;
+    values?: {
+      entryType?: string;
+      contractId?: string;
+      description?: string;
+      amount?: string;
+      dueDate?: string;
+      status?: string;
+    };
+  }
   | undefined;
 
 export async function createFinancialEntryStateAction(

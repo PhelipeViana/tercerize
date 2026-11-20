@@ -18,6 +18,7 @@ export default async function EPIsPage() {
       current="epis"
       title="Controle de EPIs"
       subtitle="Registro de entrega de equipamentos de proteção, controle de validade do CA e coleta auditável de assinatura."
+      hideHeader
     >
       <EPIsView
         tenantName={session.tenant.name}

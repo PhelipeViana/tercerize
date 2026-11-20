@@ -18,6 +18,7 @@ export default async function FinancePage() {
       current="finance"
       title="Gestão financeira"
       subtitle="Receitas vinculadas aos contratos, despesas operacionais, filtro por competência e conciliação auditável."
+      hideHeader
     >
       <FinanceView
         tenantName={session.tenant.name}

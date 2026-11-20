@@ -35,6 +35,7 @@ export default async function ServiceOrdersPage({ searchParams }: PageProps) {
       current="service-orders"
       title="Ordens de serviço"
       subtitle="Despacho de chamados, agendamento com data e hora, alocação técnica e progressão em tempo real."
+      hideHeader
     >
       <ServiceOrdersView
         tenantName={session.tenant.name}

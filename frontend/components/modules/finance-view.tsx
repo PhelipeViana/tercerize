@@ -34,7 +34,6 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const descInputRef = useRef<HTMLInputElement>(null);
   const [state, createAction, pending] = useActionState(createFinancialEntryStateAction, undefined);
 
-  // Competências disponíveis nos lançamentos (ex.: "11/2026")
   const competences = useMemo(() => {
     const set = new Set<string>();
     entries.forEach((e) => {
@@ -47,6 +46,8 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const [typeFilter, setTypeFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [dueDate, setDueDate] = useState(getTodayIso);
+  const [formType, setFormType] = useState<"Receita" | "Despesa">("Receita");
+  const [formContractId, setFormContractId] = useState<string>("");
 
   const filteredEntries = useMemo(() => {
     return entries.filter((e) => {
@@ -74,21 +75,19 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const pendentes = filteredEntries.filter((e) => e.reconciliationStatus === "Pendente").length;
 
   const hasFilters = periodFilter !== "todos" || typeFilter !== "todos" || statusFilter !== "todos";
+  const selectedContract = contracts.find((c) => c.id === formContractId);
 
   return (
     <div className="space-y-5">
-      {/* Barra de contexto de período e ação principal */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl solid-surface px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
-            <Calendar className="size-4 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
-            Período dos totais: <strong className="text-slate-900 dark:text-white">{periodLabel}</strong>
-          </span>
-          <span className="text-slate-400">·</span>
-          <span className="text-slate-500 dark:text-slate-400">
-            Os totais de Receitas, Despesas e Saldo somam lançamentos conciliados ({conciliados}) e pendentes (
-            {pendentes}).
-          </span>
+      {/* Cabeçalho com Ação Principal única junto ao título */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
+        <div>
+          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            Gestão financeira
+          </h1>
+          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
+            Receitas de contratos, despesas operacionais, período dos totais e conciliação em {tenantName}.
+          </p>
         </div>
 
         <button
@@ -97,11 +96,45 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
             descInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
             setTimeout(() => descInputRef.current?.focus(), 60);
           }}
-          className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs sm:text-sm cursor-pointer"
+          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
         >
           <Plus className="size-4" aria-hidden="true" />
           <span>Novo lançamento</span>
         </button>
+      </div>
+
+      {/* Barra de identificação explícita do período e tratamento de pendências nos totais */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl solid-surface px-4 py-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Calendar className="size-4 text-[#3B68F7] dark:text-blue-400 shrink-0" aria-hidden="true" />
+          <span className="font-semibold text-slate-700 dark:text-slate-200">
+            Período exibido nos totais: <strong className="text-slate-900 dark:text-white">{periodLabel}</strong>
+          </span>
+          <span className="text-slate-400">·</span>
+          <span className="text-slate-600 dark:text-slate-300">
+            Os totais abaixo incluem lançamentos <strong>conciliados ({conciliados})</strong> e{" "}
+            <strong>pendentes ({pendentes})</strong> do período.
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label htmlFor="top-period-select" className="font-semibold text-slate-600 dark:text-slate-300">
+            Filtrar período:
+          </label>
+          <select
+            id="top-period-select"
+            value={periodFilter}
+            onChange={(e) => setPeriodFilter(e.target.value)}
+            className="rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-bold text-slate-900 dark:text-white"
+          >
+            <option value="todos">Todos os períodos (Acumulado)</option>
+            {competences.map((comp) => (
+              <option key={comp} value={comp}>
+                Competência {comp}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {state?.ok && (
@@ -144,7 +177,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
             <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
               R$ {totalDespesas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
             </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Inclui previstas e conciliadas</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Inclui pendentes e conciliadas</p>
           </div>
         </div>
 
@@ -153,11 +186,11 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
             <Coins className="size-6 stroke-[1.75]" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Saldo operacional</p>
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Saldo ({periodLabel})</p>
             <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
               R$ {saldo.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
             </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">{pendentes} pendente(s) no período</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">{pendentes} pendente(s) incluído(s)</p>
           </div>
         </div>
 
@@ -168,7 +201,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
           <div>
             <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Conciliados</p>
             <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">{conciliados}</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">de {filteredEntries.length} lançamento(s)</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">de {filteredEntries.length} no período</p>
           </div>
         </div>
       </div>
@@ -176,31 +209,11 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
       {/* Main Solid Table Card */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-1.5 text-xs font-bold">
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Fluxo de caixa ({filteredEntries.length})
-          </span>
+          </h2>
 
-          {/* Filtros de competência, tipo e situação de conciliação */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <div>
-              <label htmlFor="fin-filter-period" className="sr-only">
-                Filtrar por competência
-              </label>
-              <select
-                id="fin-filter-period"
-                value={periodFilter}
-                onChange={(e) => setPeriodFilter(e.target.value)}
-                className="rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
-              >
-                <option value="todos">Período: Todos</option>
-                {competences.map((comp) => (
-                  <option key={comp} value={comp}>
-                    Competência {comp}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div>
               <label htmlFor="fin-filter-type" className="sr-only">
                 Filtrar por tipo
@@ -244,7 +257,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                 className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
                 <RotateCcw className="size-3" aria-hidden="true" />
-                <span>Limpar</span>
+                <span>Limpar filtros</span>
               </button>
             )}
           </div>
@@ -332,13 +345,13 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
         </div>
       </section>
 
-      {/* Novo lançamento com campo Valor iniciando em branco e suporte a padrão brasileiro */}
+      {/* Novo lançamento com campo Valor em branco e confirmação contextual da empresa ativa */}
       <section id="novo-lancamento" className="rounded-[28px] solid-surface p-6 sm:p-7 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">Novo lançamento financeiro</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Registre faturamentos de contrato (receitas) ou despesas operacionais.
+              O campo de valor inicia em branco. Informe o montante real acordado antes de salvar.
             </p>
           </div>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -356,112 +369,126 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
           </p>
         )}
 
-        <form action={createAction} noValidate className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="space-y-1">
-            <label htmlFor="fin-type" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Tipo *
-            </label>
-            <select
-              id="fin-type"
-              name="entryType"
-              defaultValue={state?.values?.entryType ?? "Receita"}
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            >
-              <option value="Receita">Receita</option>
-              <option value="Despesa">Despesa</option>
-            </select>
+        <form action={createAction} noValidate className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="space-y-1">
+              <label htmlFor="fin-type" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Tipo *
+              </label>
+              <select
+                id="fin-type"
+                name="entryType"
+                value={formType}
+                onChange={(e) => setFormType(e.target.value as "Receita" | "Despesa")}
+                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                <option value="Receita">Receita</option>
+                <option value="Despesa">Despesa</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fin-contract" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Contrato vinculado
+              </label>
+              <select
+                id="fin-contract"
+                name="contractId"
+                value={formContractId}
+                onChange={(e) => setFormContractId(e.target.value)}
+                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                <option value="">Operacional geral</option>
+                {contracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code.replace("#", "")} · {c.clientName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2 space-y-1">
+              <label htmlFor="fin-desc" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Descrição *
+              </label>
+              <input
+                ref={descInputRef}
+                id="fin-desc"
+                name="description"
+                required
+                defaultValue={state?.values?.description ?? ""}
+                placeholder="Ex.: Medição mensal de serviços terceirizados"
+                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fin-amount" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Valor (R$) *
+              </label>
+              <input
+                id="fin-amount"
+                name="amount"
+                type="text"
+                inputMode="decimal"
+                defaultValue={state?.values?.amount ?? ""}
+                placeholder="Ex.: 1.500,00 ou 150,50"
+                aria-invalid={state?.field === "amount"}
+                required
+                className={`w-full rounded-full border bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 ${
+                  state?.field === "amount"
+                    ? "border-rose-400 focus-visible:ring-rose-500"
+                    : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                }`}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fin-due" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Vencimento *
+              </label>
+              <input
+                id="fin-due"
+                name="dueDate"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                required
+                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="fin-status" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Situação inicial
+              </label>
+              <select
+                id="fin-status"
+                name="status"
+                defaultValue="Pendente"
+                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                <option value="Pendente">Pendente</option>
+                <option value="Conciliado">Conciliado</option>
+              </select>
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="fin-contract" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Contrato vinculado
-            </label>
-            <select
-              id="fin-contract"
-              name="contractId"
-              defaultValue={state?.values?.contractId ?? ""}
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            >
-              <option value="">Operacional geral</option>
-              {contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code.replace("#", "")} · {c.clientName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <span className="text-slate-700 dark:text-slate-200">
+              <strong>Confirmação para {tenantName}:</strong> Registrar <strong>{formType}</strong> vinculada a{" "}
+              <strong>
+                {selectedContract
+                  ? `${selectedContract.code.replace("#", "")} (${selectedContract.clientName})`
+                  : "Operacional geral"}
+              </strong>{" "}
+              com vencimento em <strong>{dueDate.split("-").reverse().join("/")}</strong>.
+            </span>
 
-          <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="fin-desc" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Descrição *
-            </label>
-            <input
-              ref={descInputRef}
-              id="fin-desc"
-              name="description"
-              required
-              defaultValue={state?.values?.description ?? ""}
-              placeholder="Ex.: Medição mensal de serviços terceirizados"
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="fin-amount" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Valor (R$) *
-            </label>
-            <input
-              id="fin-amount"
-              name="amount"
-              type="text"
-              inputMode="decimal"
-              defaultValue={state?.values?.amount ?? ""}
-              placeholder="Ex.: 1.500,00 ou 150,50"
-              aria-invalid={state?.field === "amount"}
-              required
-              className={`w-full rounded-full border bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 ${
-                state?.field === "amount"
-                  ? "border-rose-400 focus-visible:ring-rose-500"
-                  : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
-              }`}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="fin-due" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Vencimento *
-            </label>
-            <input
-              id="fin-due"
-              name="dueDate"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              required
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="fin-status" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Situação inicial
-            </label>
-            <select
-              id="fin-status"
-              name="status"
-              defaultValue="Pendente"
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            >
-              <option value="Pendente">Pendente</option>
-              <option value="Conciliado">Conciliado</option>
-            </select>
-          </div>
-
-          <div className="sm:col-span-2 lg:col-span-3 flex items-end justify-end">
             <button
               type="submit"
               disabled={pending}
-              className="min-h-10 pill-gradient py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
             >
               {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
               <span>Salvar lançamento em {tenantName}</span>
