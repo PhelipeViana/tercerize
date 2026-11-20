@@ -1,39 +1,117 @@
 package operations
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tercerize/backend/internal/auth"
 	"tercerize/backend/internal/httpx"
+	"tercerize/backend/internal/mailer"
 )
 
 type Handlers struct {
-	pool *pgxpool.Pool
-	log  *slog.Logger
+	pool     *pgxpool.Pool
+	authRepo *auth.Repository
+	mailer   *mailer.Mailer
+	appURL   string
+	log      *slog.Logger
 }
 
-func NewHandlers(pool *pgxpool.Pool, log *slog.Logger) *Handlers {
-	return &Handlers{pool: pool, log: log}
+func NewHandlers(pool *pgxpool.Pool, authRepo *auth.Repository, m *mailer.Mailer, appURL string, log *slog.Logger) *Handlers {
+	return &Handlers{
+		pool:     pool,
+		authRepo: authRepo,
+		mailer:   m,
+		appURL:   strings.TrimRight(appURL, "/"),
+		log:      log,
+	}
 }
 
-// CreateCompany: POST /api/tenants (exclusivo para role = 'developer')
+func requirePerm(w http.ResponseWriter, sess *auth.SessionContext, perm string) bool {
+	if sess == nil || !sess.HasPermission(perm) {
+		httpx.Message(w, http.StatusForbidden, "Sua função nesta empresa não possui permissão para realizar esta ação.")
+		return false
+	}
+	return true
+}
+
+func seedDefaultRoles(ctx context.Context, tx pgx.Tx, tenantID string) (ownerRoleID string, err error) {
+	defaults := []struct {
+		key   string
+		name  string
+		desc  string
+		perms string
+	}{
+		{
+			key:   "owner",
+			name:  "Dono da empresa",
+			desc:  "Acesso total à empresa e gestão exclusiva de funções e subpermissões.",
+			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"access:manage":true}`,
+		},
+		{
+			key:   "manager",
+			name:  "Gerente operacional",
+			desc:  "Gestão completa dos módulos operacionais sem gerenciar funções ou acessos.",
+			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"access:manage":false}`,
+		},
+		{
+			key:   "operator",
+			name:  "Operador técnico",
+			desc:  "Acesso a ordens de serviço, colaboradores, EPIs e almoxarifado.",
+			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":false,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":false,"finance:write":false,"access:manage":false}`,
+		},
+		{
+			key:   "financial",
+			name:  "Analista financeiro",
+			desc:  "Acesso à gestão financeira e visualização de contratos.",
+			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":false,"service_orders:write":false,"employees:view":false,"employees:write":false,"epis:view":false,"epis:write":false,"inventory:view":false,"inventory:write":false,"finance:view":true,"finance:write":true,"access:manage":false}`,
+		},
+	}
+
+	for _, d := range defaults {
+		var rid string
+		err = tx.QueryRow(ctx,
+			`INSERT INTO tenant_roles (tenant_id, key, name, description, permissions, is_system)
+			 VALUES ($1, $2, $3, $4, $5::jsonb, true)
+			 ON CONFLICT (tenant_id, key) DO UPDATE SET name = EXCLUDED.name
+			 RETURNING id`,
+			tenantID, d.key, d.name, d.desc, d.perms).Scan(&rid)
+		if err != nil {
+			return "", err
+		}
+		if d.key == "owner" {
+			ownerRoleID = rid
+		}
+	}
+	return ownerRoleID, nil
+}
+
+// CreateCompany: POST /api/tenants (exclusivo Master)
+// Exige Razão Social, CNPJ único, Nome do Responsável e E-mail do Responsável.
+// Envia automaticamente o link de ativação do Google Authenticator para o e-mail do responsável.
 func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	if sess == nil || sess.User.Role != "developer" {
-		httpx.Message(w, http.StatusForbidden, "Apenas desenvolvedores podem cadastrar novas empresas.")
+	if sess == nil || !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas usuários com acesso Master podem cadastrar novas empresas.")
 		return
 	}
 	var in struct {
-		Name string `json:"name"`
-		CNPJ string `json:"cnpj"`
+		Name       string `json:"name"`
+		CNPJ       string `json:"cnpj"`
+		OwnerName  string `json:"ownerName"`
+		OwnerEmail string `json:"ownerEmail"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -55,9 +133,33 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	ownerName := strings.TrimSpace(in.OwnerName)
+	if len([]rune(ownerName)) < 2 {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "ownerName",
+			"message": "Informe o nome do responsável (dono da empresa).",
+		})
+		return
+	}
+	ownerEmail, emailErr := auth.NormalizeEmail(in.OwnerEmail)
+	if emailErr != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "ownerEmail",
+			"message": emailErr,
+		})
+		return
+	}
+
+	ctx := r.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao iniciar transação.")
+		return
+	}
+	defer tx.Rollback(ctx)
 
 	var exists bool
-	_ = h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM tenants WHERE cnpj = $1)`, formattedCNPJ).Scan(&exists)
+	_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE cnpj = $1)`, formattedCNPJ).Scan(&exists)
 	if exists {
 		httpx.Write(w, http.StatusConflict, map[string]any{
 			"field":   "cnpj",
@@ -66,21 +168,434 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var id string
-	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO tenants (name, cnpj, active) VALUES ($1, $2, true) RETURNING id`,
-		name, formattedCNPJ).Scan(&id)
+	ownerUserID, _, _, err := h.authRepo.EnsureUserWithTOTP(ctx, tx, ownerName, ownerEmail)
+	if err != nil {
+		h.log.Error("provisionar dono da empresa", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao vincular responsável da empresa.")
+		return
+	}
+
+	var tenantID string
+	err = tx.QueryRow(ctx,
+		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active)
+		 VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
+		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID).Scan(&tenantID)
 	if err != nil {
 		h.log.Error("criar empresa", "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar empresa.")
 		return
 	}
-	httpx.Write(w, http.StatusCreated, map[string]any{"id": id, "name": name, "cnpj": formattedCNPJ})
+
+	ownerRoleID, err := seedDefaultRoles(ctx, tx, tenantID)
+	if err != nil {
+		h.log.Error("criar roles padrão da empresa", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao configurar funções padrão da empresa.")
+		return
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO tenant_memberships (tenant_id, user_id, role_id)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (tenant_id, user_id) DO UPDATE SET role_id = EXCLUDED.role_id`,
+		tenantID, ownerUserID, ownerRoleID)
+	if err != nil {
+		h.log.Error("vincular dono à empresa", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao atribuir permissão de dono.")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao confirmar cadastro da empresa.")
+		return
+	}
+
+	// Dispara automaticamente o link de ativação do Google Authenticator para o e-mail do responsável
+	emailSent := false
+	emailWarning := ""
+	if rawToken, linkErr := h.authRepo.CreateSetupLink(ctx, ownerUserID, tenantID); linkErr == nil {
+		activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+		if mailErr := h.mailer.SendAuthenticatorLink(ownerEmail, ownerName, name, "Dono da empresa", activationURL); mailErr != nil {
+			h.log.Error("enviar e-mail para dono da empresa", "to", ownerEmail, "err", mailErr)
+			emailWarning = "Empresa criada, mas houve falha no disparo do e-mail SMTP: " + mailErr.Error()
+		} else {
+			emailSent = true
+		}
+	}
+
+	httpx.Write(w, http.StatusCreated, map[string]any{
+		"id":           tenantID,
+		"name":         name,
+		"cnpj":         formattedCNPJ,
+		"ownerName":    ownerName,
+		"ownerEmail":   ownerEmail,
+		"emailSent":    emailSent,
+		"emailWarning": emailWarning,
+	})
+}
+
+var roleKeyRe = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// CreateOrUpdateRole: POST /api/rbac/roles (apenas Dono da empresa ativa ou Master)
+func (h *Handlers) CreateOrUpdateRole(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode gerenciar roles e permissões.")
+		return
+	}
+	var in struct {
+		ID          string          `json:"id"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Permissions map[string]bool `json:"permissions"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if len([]rune(name)) < 2 {
+		httpx.Message(w, http.StatusBadRequest, "Informe o nome da função (mínimo 2 caracteres).")
+		return
+	}
+	if in.Permissions == nil {
+		in.Permissions = map[string]bool{}
+	}
+	// Apenas a role de sistema 'owner' pode gerenciar roles/permissões
+	in.Permissions["access:manage"] = false
+
+	permsJSON, _ := json.Marshal(in.Permissions)
+
+	if strings.TrimSpace(in.ID) != "" {
+		var key string
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT key FROM tenant_roles WHERE id = $1 AND tenant_id = $2`,
+			strings.TrimSpace(in.ID), sess.Tenant.ID).Scan(&key)
+		if err != nil {
+			httpx.Message(w, http.StatusNotFound, "Função não encontrada nesta empresa.")
+			return
+		}
+		if key == "owner" {
+			httpx.Message(w, http.StatusBadRequest, "A função Dono da empresa possui acesso integral e não pode ser restringida.")
+			return
+		}
+		_, err = h.pool.Exec(r.Context(),
+			`UPDATE tenant_roles SET name = $1, description = $2, permissions = $3::jsonb
+			 WHERE id = $4 AND tenant_id = $5`,
+			name, strings.TrimSpace(in.Description), string(permsJSON), strings.TrimSpace(in.ID), sess.Tenant.ID)
+		if err != nil {
+			httpx.Message(w, http.StatusInternalServerError, "Erro ao atualizar função.")
+			return
+		}
+		httpx.Write(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
+	slug := roleKeyRe.ReplaceAllString(strings.ToLower(name), "_")
+	slug = strings.Trim(slug, "_")
+	if slug == "" || slug == "owner" || slug == "master" {
+		slug = fmt.Sprintf("custom_%d", time.Now().Unix()%100000)
+	}
+
+	var id string
+	err := h.pool.QueryRow(r.Context(),
+		`INSERT INTO tenant_roles (tenant_id, key, name, description, permissions, is_system)
+		 VALUES ($1, $2, $3, $4, $5::jsonb, false) RETURNING id`,
+		sess.Tenant.ID, slug, name, strings.TrimSpace(in.Description), string(permsJSON)).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			httpx.Message(w, http.StatusConflict, "Já existe uma função com este nome nesta empresa.")
+			return
+		}
+		h.log.Error("criar role customizada", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao criar função.")
+		return
+	}
+	httpx.Write(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// DeleteRole: POST /api/rbac/roles/delete (apenas Dono da empresa ativa ou Master)
+func (h *Handlers) DeleteRole(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode excluir funções.")
+		return
+	}
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.ID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Informe a função.")
+		return
+	}
+	var isSystem bool
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT is_system FROM tenant_roles WHERE id = $1 AND tenant_id = $2`,
+		strings.TrimSpace(in.ID), sess.Tenant.ID).Scan(&isSystem); err != nil {
+		httpx.Message(w, http.StatusNotFound, "Função não encontrada.")
+		return
+	}
+	if isSystem {
+		httpx.Message(w, http.StatusBadRequest, "Funções padrão do sistema não podem ser excluídas.")
+		return
+	}
+	var count int
+	_ = h.pool.QueryRow(r.Context(), `SELECT count(*) FROM tenant_memberships WHERE role_id = $1`, strings.TrimSpace(in.ID)).Scan(&count)
+	if count > 0 {
+		httpx.Message(w, http.StatusConflict, "Existem usuários vinculados a esta função. Reatribua-os antes de excluir.")
+		return
+	}
+	_, _ = h.pool.Exec(r.Context(), `DELETE FROM tenant_roles WHERE id = $1 AND tenant_id = $2`, strings.TrimSpace(in.ID), sess.Tenant.ID)
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// AddMember: POST /api/rbac/members (apenas Dono da empresa ativa ou Master)
+// Um mesmo e-mail pode ser dono de várias empresas e subpermissão em outras,
+// mas JAMAIS pode ter 2 funções na mesma empresa (UNIQUE (tenant_id, user_id)).
+func (h *Handlers) AddMember(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode conceder subpermissões.")
+		return
+	}
+	var in struct {
+		Name   string `json:"name"`
+		Email  string `json:"email"`
+		RoleID string `json:"roleId"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if len([]rune(name)) < 2 {
+		httpx.Message(w, http.StatusBadRequest, "Informe o nome do usuário.")
+		return
+	}
+	email, emailErr := auth.NormalizeEmail(in.Email)
+	if emailErr != "" {
+		httpx.Message(w, http.StatusBadRequest, emailErr)
+		return
+	}
+	roleID := strings.TrimSpace(in.RoleID)
+	if roleID == "" {
+		httpx.Message(w, http.StatusBadRequest, "Selecione uma função (Role) para o usuário.")
+		return
+	}
+
+	ctx := r.Context()
+	var roleKey, roleName string
+	err := h.pool.QueryRow(ctx,
+		`SELECT key, name FROM tenant_roles WHERE id = $1 AND tenant_id = $2`,
+		roleID, sess.Tenant.ID).Scan(&roleKey, &roleName)
+	if err != nil {
+		httpx.Message(w, http.StatusBadRequest, "Função selecionada não pertence a esta empresa.")
+		return
+	}
+	if roleKey == "owner" && !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas o acesso Master pode atribuir a função de Dono da empresa.")
+		return
+	}
+
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro interno.")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	userID, _, _, err := h.authRepo.EnsureUserWithTOTP(ctx, tx, name, email)
+	if err != nil {
+		h.log.Error("garantir usuário membro", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao localizar ou criar usuário.")
+		return
+	}
+
+	// Verificação explícita: jamais pode ter 2 funções numa mesma empresa
+	var existingRoleName string
+	checkErr := tx.QueryRow(ctx,
+		`SELECT tr.name
+		   FROM tenant_memberships tm
+		   JOIN tenant_roles tr ON tr.id = tm.role_id
+		  WHERE tm.tenant_id = $1 AND tm.user_id = $2`,
+		sess.Tenant.ID, userID).Scan(&existingRoleName)
+	if checkErr == nil {
+		httpx.Message(w, http.StatusConflict, fmt.Sprintf(
+			"Este e-mail (%s) já possui a função '%s' nesta empresa. Um usuário jamais pode ter duas funções na mesma empresa — utilize a opção de alterar função na tabela.",
+			email, existingRoleName,
+		))
+		return
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO tenant_memberships (tenant_id, user_id, role_id) VALUES ($1, $2, $3)`,
+		sess.Tenant.ID, userID, roleID)
+	if err != nil {
+		h.log.Error("vincular membro", "err", err)
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao vincular usuário à empresa.")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao salvar permissão.")
+		return
+	}
+
+	// Envia link de ativação do Google Authenticator para o e-mail adicionado
+	emailSent := false
+	emailWarning := ""
+	if rawToken, linkErr := h.authRepo.CreateSetupLink(ctx, userID, sess.Tenant.ID); linkErr == nil {
+		activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+		if mailErr := h.mailer.SendAuthenticatorLink(email, name, sess.Tenant.Name, roleName, activationURL); mailErr != nil {
+			h.log.Error("enviar e-mail para membro", "to", email, "err", mailErr)
+			emailWarning = "Acesso concedido, mas houve falha no envio do e-mail SMTP: " + mailErr.Error()
+		} else {
+			emailSent = true
+		}
+	}
+
+	httpx.Write(w, http.StatusCreated, map[string]any{
+		"ok":           true,
+		"email":        email,
+		"roleName":     roleName,
+		"emailSent":    emailSent,
+		"emailWarning": emailWarning,
+	})
+}
+
+// UpdateMemberRole: POST /api/rbac/members/role (apenas Dono ou Master)
+func (h *Handlers) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode alterar funções.")
+		return
+	}
+	var in struct {
+		MembershipID string `json:"membershipId"`
+		RoleID       string `json:"roleId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.MembershipID) == "" || strings.TrimSpace(in.RoleID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
+		return
+	}
+
+	var currentKey string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT tr.key FROM tenant_memberships tm
+		 JOIN tenant_roles tr ON tr.id = tm.role_id
+		 WHERE tm.id = $1 AND tm.tenant_id = $2`,
+		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&currentKey)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Vínculo não encontrado nesta empresa.")
+		return
+	}
+	if currentKey == "owner" && !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "A função do Dono da empresa só pode ser alterada por um acesso Master.")
+		return
+	}
+
+	var newKey string
+	err = h.pool.QueryRow(r.Context(),
+		`SELECT key FROM tenant_roles WHERE id = $1 AND tenant_id = $2`,
+		strings.TrimSpace(in.RoleID), sess.Tenant.ID).Scan(&newKey)
+	if err != nil {
+		httpx.Message(w, http.StatusBadRequest, "Nova função inválida.")
+		return
+	}
+	if newKey == "owner" && !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas o acesso Master pode promover alguém a Dono.")
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(),
+		`UPDATE tenant_memberships SET role_id = $1 WHERE id = $2 AND tenant_id = $3`,
+		strings.TrimSpace(in.RoleID), strings.TrimSpace(in.MembershipID), sess.Tenant.ID)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao alterar função.")
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// RemoveMember: POST /api/rbac/members/remove (apenas Dono ou Master)
+func (h *Handlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode remover acessos.")
+		return
+	}
+	var in struct {
+		MembershipID string `json:"membershipId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.MembershipID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
+		return
+	}
+	var roleKey string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT tr.key FROM tenant_memberships tm
+		 JOIN tenant_roles tr ON tr.id = tm.role_id
+		 WHERE tm.id = $1 AND tm.tenant_id = $2`,
+		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&roleKey)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Membro não encontrado.")
+		return
+	}
+	if roleKey == "owner" {
+		httpx.Message(w, http.StatusBadRequest, "O Dono principal da empresa não pode ser removido da empresa.")
+		return
+	}
+	_, _ = h.pool.Exec(r.Context(), `DELETE FROM tenant_memberships WHERE id = $1 AND tenant_id = $2`,
+		strings.TrimSpace(in.MembershipID), sess.Tenant.ID)
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ResendMemberLink: POST /api/rbac/members/resend-link (apenas Dono ou Master)
+func (h *Handlers) ResendMemberLink(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode reenviar o link de acesso.")
+		return
+	}
+	var in struct {
+		UserID string `json:"userId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.UserID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Informe o usuário.")
+		return
+	}
+	var uName, uEmail, roleName string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT u.name, u.email, tr.name
+		   FROM tenant_memberships tm
+		   JOIN users u ON u.id = tm.user_id
+		   JOIN tenant_roles tr ON tr.id = tm.role_id
+		  WHERE tm.tenant_id = $1 AND tm.user_id = $2`,
+		sess.Tenant.ID, strings.TrimSpace(in.UserID)).Scan(&uName, &uEmail, &roleName)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Usuário não vinculado a esta empresa.")
+		return
+	}
+	rawToken, err := h.authRepo.CreateSetupLink(r.Context(), strings.TrimSpace(in.UserID), sess.Tenant.ID)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao gerar link de ativação.")
+		return
+	}
+	activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+	if err := h.mailer.SendAuthenticatorLink(uEmail, uName, sess.Tenant.Name, roleName, activationURL); err != nil {
+		h.log.Error("reenviar link SMTP", "to", uEmail, "err", err)
+		httpx.Message(w, http.StatusBadGateway, "Falha ao enviar o e-mail SMTP: "+err.Error())
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "message": "Link de ativação enviado para " + uEmail})
 }
 
 // CreateClient: POST /api/clients
 func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "contracts:write") {
+		return
+	}
 	var in struct {
 		Name    string `json:"name"`
 		CNPJ    string `json:"cnpj"`
@@ -131,6 +646,9 @@ func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 // CreateContract: POST /api/contracts
 func (h *Handlers) CreateContract(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "contracts:write") {
+		return
+	}
 	var in struct {
 		ClientID       string  `json:"clientId"`
 		Code           string  `json:"code"`
@@ -185,6 +703,9 @@ func (h *Handlers) CreateContract(w http.ResponseWriter, r *http.Request) {
 // CreateEmployee: POST /api/employees
 func (h *Handlers) CreateEmployee(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "employees:write") {
+		return
+	}
 	var in struct {
 		ContractID string `json:"contractId"`
 		Name       string `json:"name"`
@@ -236,6 +757,9 @@ func (h *Handlers) CreateEmployee(w http.ResponseWriter, r *http.Request) {
 // UpdateEmployeeSchedule: POST /api/employees/schedule
 func (h *Handlers) UpdateEmployeeSchedule(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "employees:write") {
+		return
+	}
 	var in struct {
 		ID         string `json:"id"`
 		ContractID string `json:"contractId"`
@@ -278,6 +802,9 @@ func (h *Handlers) UpdateEmployeeSchedule(w http.ResponseWriter, r *http.Request
 // CreateEPI: POST /api/epis
 func (h *Handlers) CreateEPI(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "epis:write") {
+		return
+	}
 	var in struct {
 		EmployeeID    string `json:"employeeId"`
 		EPIName       string `json:"epiName"`
@@ -339,6 +866,9 @@ func (h *Handlers) CreateEPI(w http.ResponseWriter, r *http.Request) {
 // SignEPI: POST /api/epis/sign
 func (h *Handlers) SignEPI(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "epis:write") {
+		return
+	}
 	var in struct {
 		ID           string `json:"id"`
 		SignedBy     string `json:"signedBy"`
@@ -375,6 +905,9 @@ func (h *Handlers) SignEPI(w http.ResponseWriter, r *http.Request) {
 // CreateInventoryItem: POST /api/inventory-items
 func (h *Handlers) CreateInventoryItem(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "inventory:write") {
+		return
+	}
 	var in struct {
 		SKU         string  `json:"sku"`
 		Description string  `json:"description"`
@@ -424,9 +957,11 @@ func (h *Handlers) CreateInventoryItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateInventoryMovement: POST /api/inventory-movements
-// QA-01: Locks item row with FOR UPDATE and strictly rejects outflows greater than available balance.
 func (h *Handlers) CreateInventoryMovement(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "inventory:write") {
+		return
+	}
 	var in struct {
 		ItemID         string `json:"itemId"`
 		EmployeeID     string `json:"employeeId"`
@@ -546,6 +1081,9 @@ func (h *Handlers) CreateInventoryMovement(w http.ResponseWriter, r *http.Reques
 // CreateServiceOrder: POST /api/service-orders
 func (h *Handlers) CreateServiceOrder(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "service_orders:write") {
+		return
+	}
 	var in struct {
 		ClientID     string `json:"clientId"`
 		ContractID   string `json:"contractId"`
@@ -615,6 +1153,9 @@ func (h *Handlers) CreateServiceOrder(w http.ResponseWriter, r *http.Request) {
 // UpdateServiceOrderStatus: POST /api/service-orders/status
 func (h *Handlers) UpdateServiceOrderStatus(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "service_orders:write") {
+		return
+	}
 	var in struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
@@ -643,6 +1184,9 @@ func (h *Handlers) UpdateServiceOrderStatus(w http.ResponseWriter, r *http.Reque
 // CreateFinancialEntry: POST /api/financial-entries
 func (h *Handlers) CreateFinancialEntry(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "finance:write") {
+		return
+	}
 	var in struct {
 		ContractID  string  `json:"contractId"`
 		EntryType   string  `json:"entryType"`
@@ -693,6 +1237,9 @@ func (h *Handlers) CreateFinancialEntry(w http.ResponseWriter, r *http.Request) 
 // ReconcileFinancialEntry: POST /api/financial-entries/reconcile
 func (h *Handlers) ReconcileFinancialEntry(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	if !requirePerm(w, sess, "finance:write") {
+		return
+	}
 	var in struct {
 		ID string `json:"id"`
 	}

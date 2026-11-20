@@ -1,6 +1,6 @@
 import { ServiceOrdersView } from "@/components/modules/service-orders-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import {
   listClients,
   listCompanies,
@@ -18,10 +18,10 @@ interface PageProps {
 }
 
 export default async function ServiceOrdersPage({ searchParams }: PageProps) {
-  const session = await requireSession();
+  const session = await requirePermission("service_orders:view");
   const params = await searchParams;
   const [companies, orders, clients, contracts, employees] = await Promise.all([
-    listCompanies(),
+    listCompanies(session.user.id, session.user.isMaster),
     listServiceOrders(session.tenant.id),
     listClients(session.tenant.id),
     listContracts(session.tenant.id),

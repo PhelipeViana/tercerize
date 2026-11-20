@@ -7,10 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"tercerize/backend/internal/auth"
+	"tercerize/backend/internal/totp"
 )
 
-// Ensure guarantees the developer user (phelipegabriel1988@gmail.com / password) and initial multi-company data exist.
+// Ensure guarantees the Master account (phelipegabriel1988@gmail.com) with TOTP secret and initial multi-company data exist.
 func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -22,16 +22,16 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 	err = tx.QueryRow(ctx, `SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1`).Scan(&tenant1ID)
 	if err != nil {
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO tenants (name, cnpj, active)
-			 VALUES ('Tercerize Serviços & Facilities MT Ltda', '14.520.890/0001-77', true)
+			`INSERT INTO tenants (name, cnpj, owner_name, owner_email, active)
+			 VALUES ('Tercerize Serviços & Facilities MT Ltda', '14.520.890/0001-77', 'Phelipe Viana', 'phelipegabriel1988@gmail.com', true)
 			 RETURNING id`).Scan(&tenant1ID); err != nil {
 			return fmt.Errorf("seed tenant 1: %w", err)
 		}
 
 		var tenant2ID string
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO tenants (name, cnpj, active)
-			 VALUES ('Alfa Engenharia & Manutenção Predial Ltda', '28.910.440/0001-03', true)
+			`INSERT INTO tenants (name, cnpj, owner_name, owner_email, active)
+			 VALUES ('Alfa Engenharia & Manutenção Predial Ltda', '28.910.440/0001-03', 'Phelipe Viana', 'phelipegabriel1988@gmail.com', true)
 			 RETURNING id`).Scan(&tenant2ID); err != nil {
 			return fmt.Errorf("seed tenant 2: %w", err)
 		}
@@ -44,21 +44,50 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 
-	hash, err := auth.HashPassword("password")
+	// Ensure Master user exists with is_master = true and a valid Base32 TOTP secret
+	masterSecret, err := totp.GenerateSecret()
 	if err != nil {
-		return fmt.Errorf("hash developer password: %w", err)
+		return fmt.Errorf("generate master totp secret: %w", err)
 	}
 
-	_, err = tx.Exec(ctx,
-		`INSERT INTO users (tenant_id, name, email, password_hash, role)
-		 VALUES ($1, 'Phelipe Viana (Desenvolvedor)', 'phelipegabriel1988@gmail.com', $2, 'developer')
+	var masterID string
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (tenant_id, name, email, password_hash, role, is_master, totp_secret)
+		 VALUES ($1, 'Phelipe Viana', 'phelipegabriel1988@gmail.com', '', 'developer', true, $2)
 		 ON CONFLICT ((lower(email))) DO UPDATE
-		 SET password_hash = EXCLUDED.password_hash,
-		     role = 'developer'`,
-		tenant1ID, hash)
+		 SET is_master = true,
+		     name = 'Phelipe Viana',
+		     totp_secret = CASE WHEN users.totp_secret = '' THEN EXCLUDED.totp_secret ELSE users.totp_secret END
+		 RETURNING id`,
+		tenant1ID, masterSecret).Scan(&masterID)
 	if err != nil {
-		return fmt.Errorf("seed developer user: %w", err)
+		return fmt.Errorf("seed master user: %w", err)
 	}
+
+	// Ensure every user without a TOTP secret receives one
+	rows, err := tx.Query(ctx, `SELECT id FROM users WHERE totp_secret = ''`)
+	if err == nil {
+		var missingIDs []string
+		for rows.Next() {
+			var uid string
+			if scanErr := rows.Scan(&uid); scanErr == nil {
+				missingIDs = append(missingIDs, uid)
+			}
+		}
+		rows.Close()
+		for _, uid := range missingIDs {
+			if sec, secErr := totp.GenerateSecret(); secErr == nil {
+				_, _ = tx.Exec(ctx, `UPDATE users SET totp_secret = $1 WHERE id = $2`, sec, uid)
+			}
+		}
+	}
+
+	// Ensure all tenants have owner_user_id and default roles
+	_, _ = tx.Exec(ctx,
+		`UPDATE tenants
+		 SET owner_name = CASE WHEN owner_name = '' THEN 'Phelipe Viana' ELSE owner_name END,
+		     owner_email = CASE WHEN owner_email = '' THEN 'phelipegabriel1988@gmail.com' ELSE owner_email END,
+		     owner_user_id = COALESCE(owner_user_id, $1)`, masterID)
 
 	return tx.Commit(ctx)
 }
@@ -110,7 +139,6 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 
-	// EPIs
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO epi_deliveries (tenant_id, employee_id, epi_name, ca_number, delivered_at, expires_at, receipt_signed, signed_at, signed_by, evidence_code)
 		 VALUES
@@ -120,7 +148,6 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 
-	// Inventário e Ativos
 	var item1ID, item4ID string
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO inventory_items (tenant_id, sku, description, category, quantity, unit, unit_value, min_quantity)
@@ -143,7 +170,6 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 
-	// Movimentação inicial e cautela
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO inventory_movements (tenant_id, item_id, employee_id, movement_type, previous_quantity, quantity, new_quantity, notes)
 		 VALUES
@@ -153,7 +179,6 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 
-	// Ordens de Serviço
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO service_orders (tenant_id, client_id, contract_id, employee_id, code, description, priority, status, scheduled_for)
 		 VALUES
@@ -163,7 +188,6 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 
-	// Gestão Financeira
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO financial_entries (tenant_id, contract_id, entry_type, description, amount, due_date, reconciliation_status)
 		 VALUES

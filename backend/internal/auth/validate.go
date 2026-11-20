@@ -9,17 +9,9 @@ import (
 
 type FieldErrors map[string][]string
 
-type RegisterInput struct {
-	CompanyName string `json:"companyName"`
-	CNPJ        string `json:"cnpj"`
-	Name        string `json:"name"`
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-}
-
 type LoginInput struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email string `json:"email"`
+	Code  string `json:"code"`
 }
 
 var emailShape = regexp.MustCompile(`^[A-Za-z0-9_'+\-.]*[A-Za-z0-9_+\-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$`)
@@ -83,7 +75,7 @@ func ValidateCNPJ(raw string) (string, string) {
 	return formatted, ""
 }
 
-func normalizeEmail(raw string) (string, string) {
+func NormalizeEmail(raw string) (string, string) {
 	email := strings.ToLower(strings.TrimSpace(raw))
 	switch {
 	case len(email) > 254:
@@ -94,54 +86,22 @@ func normalizeEmail(raw string) (string, string) {
 	return email, ""
 }
 
-func ValidateRegister(in RegisterInput) (RegisterInput, FieldErrors) {
-	errs := FieldErrors{}
-	in.CompanyName = strings.TrimSpace(in.CompanyName)
-	if len([]rune(in.CompanyName)) < 2 {
-		errs["companyName"] = []string{"Informe a razão social da empresa (mínimo 2 caracteres)."}
-	} else if len([]rune(in.CompanyName)) > 120 {
-		errs["companyName"] = []string{"Use até 120 caracteres."}
-	}
-
-	formattedCNPJ, cnpjErr := ValidateCNPJ(in.CNPJ)
-	in.CNPJ = formattedCNPJ
-	if cnpjErr != "" {
-		errs["cnpj"] = []string{cnpjErr}
-	}
-
-	in.Name = strings.TrimSpace(in.Name)
-	if n := len([]rune(in.Name)); n < 2 {
-		errs["name"] = []string{"Informe o nome do gestor (mínimo 2 letras)."}
-	} else if n > 80 {
-		errs["name"] = []string{"Use até 80 caracteres."}
-	}
-	email, msg := normalizeEmail(in.Email)
-	in.Email = email
-	if msg != "" {
-		errs["email"] = []string{msg}
-	}
-	if n := len([]rune(in.Password)); n < 6 {
-		errs["password"] = []string{"A senha precisa ter ao menos 6 caracteres."}
-	} else if n > 128 {
-		errs["password"] = []string{"Use até 128 caracteres."}
-	}
-	if len(errs) == 0 {
-		return in, nil
-	}
-	return in, errs
-}
-
 func ValidateLogin(in LoginInput) (LoginInput, FieldErrors) {
 	errs := FieldErrors{}
-	email, msg := normalizeEmail(in.Email)
+	email, msg := NormalizeEmail(in.Email)
 	in.Email = email
 	if msg != "" {
 		errs["email"] = []string{msg}
 	}
-	if in.Password == "" {
-		errs["password"] = []string{"Informe a senha."}
-	} else if len([]rune(in.Password)) > 128 {
-		errs["password"] = []string{"Use até 128 caracteres."}
+	digits := strings.Map(func(r rune) rune {
+		if unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, in.Code)
+	in.Code = digits
+	if len(digits) != 6 {
+		errs["code"] = []string{"Informe o código de 6 dígitos do Google Authenticator."}
 	}
 	if len(errs) == 0 {
 		return in, nil

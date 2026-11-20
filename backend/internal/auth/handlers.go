@@ -3,23 +3,47 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"tercerize/backend/internal/httpx"
+	"tercerize/backend/internal/mailer"
+	"tercerize/backend/internal/totp"
 )
 
 type Handlers struct {
 	repo    *Repository
 	limiter *LoginLimiter
+	mailer  *mailer.Mailer
+	appName string
+	appURL  string
 	secure  bool
 	log     *slog.Logger
 }
 
-func NewHandlers(repo *Repository, limiter *LoginLimiter, cookieSecure bool, log *slog.Logger) *Handlers {
-	return &Handlers{repo: repo, limiter: limiter, secure: cookieSecure, log: log}
+func NewHandlers(
+	repo *Repository,
+	limiter *LoginLimiter,
+	m *mailer.Mailer,
+	appName string,
+	appURL string,
+	cookieSecure bool,
+	log *slog.Logger,
+) *Handlers {
+	return &Handlers{
+		repo:    repo,
+		limiter: limiter,
+		mailer:  m,
+		appName: appName,
+		appURL:  strings.TrimRight(appURL, "/"),
+		secure:  cookieSecure,
+		log:     log,
+	}
 }
 
 type enteredResponse struct {
@@ -31,34 +55,7 @@ const (
 	msgBadRequest  = "Pedido inválido."
 )
 
-func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
-	var in RegisterInput
-	if err := httpx.Read(r, &in); err != nil {
-		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
-		return
-	}
-	in, errs := ValidateRegister(in)
-	if errs != nil {
-		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": errs})
-		return
-	}
-	hash, err := HashPassword(in.Password)
-	if err != nil {
-		h.fail(w, "hash da senha", err)
-		return
-	}
-	userID, tenantID, err := h.repo.CreateAccount(r.Context(), in.CompanyName, in.CNPJ, in.Name, in.Email, hash)
-	if errors.Is(err, ErrEmailTaken) {
-		httpx.Write(w, http.StatusConflict, map[string]any{"errors": FieldErrors{"email": {"Este e-mail já está cadastrado."}}})
-		return
-	}
-	if err != nil {
-		h.fail(w, "criar conta", err)
-		return
-	}
-	h.enter(w, r, userID, tenantID, http.StatusCreated)
-}
-
+// Login authenticates exclusively via Email + Google Authenticator 6-digit TOTP code. No exceptions.
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var in LoginInput
 	if err := httpx.Read(r, &in); err != nil {
@@ -70,6 +67,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": errs})
 		return
 	}
+
 	ctx := r.Context()
 	key := clientIP(r) + "|" + in.Email
 	blocked, err := h.limiter.IsBlocked(ctx, key)
@@ -77,35 +75,47 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("limite de login indisponível", "err", err)
 	}
 	if blocked {
-		httpx.Message(w, http.StatusTooManyRequests, "Muitas tentativas. Aguarde alguns minutos e tente de novo.")
+		httpx.Message(w, http.StatusTooManyRequests, "Muitas tentativas. Aguarde alguns minutos e tente novamente.")
 		return
 	}
 
-	user, err := h.repo.FindUserForLogin(ctx, in.Email)
+	user, err := h.repo.FindUserByEmail(ctx, in.Email)
 	if err != nil {
 		h.fail(w, "buscar usuário", err)
 		return
 	}
+
 	valid := false
-	if user != nil {
-		valid = VerifyPassword(user.PasswordHash, in.Password)
-	} else {
-		VerifyAgainstDummy(in.Password)
+	if user != nil && user.TOTPSecret != "" {
+		valid = totp.Verify(user.TOTPSecret, in.Code, time.Now())
 	}
 	if !valid {
 		if err := h.limiter.RecordFailure(ctx, key); err != nil {
 			h.log.Error("limite de login indisponível", "err", err)
 		}
-		httpx.Message(w, http.StatusUnauthorized, "E-mail ou senha incorretos.")
+		httpx.Message(w, http.StatusUnauthorized, "E-mail ou código do Google Authenticator inválido.")
 		return
 	}
+
+	tenantID, err := h.repo.FindDefaultTenantForUser(ctx, user.ID, user.IsMaster)
+	if err != nil {
+		h.fail(w, "resolver empresa padrão do usuário", err)
+		return
+	}
+	if tenantID == "" {
+		httpx.Message(w, http.StatusForbidden, "Este e-mail não está vinculado a nenhuma empresa ativa.")
+		return
+	}
+
 	if err := h.limiter.Reset(ctx, key); err != nil {
 		h.log.Error("limite de login indisponível", "err", err)
 	}
-	h.enter(w, r, user.ID, user.TenantID, http.StatusOK)
+	_ = h.repo.MarkTOTPConfigured(ctx, user.ID)
+	h.enter(w, r, user.ID, tenantID, http.StatusOK)
 }
 
-func (h *Handlers) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+// RequestSetupLink sends an email with the activation link (no QR code) for Google Authenticator configuration.
+func (h *Handlers) RequestSetupLink(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email string `json:"email"`
 	}
@@ -113,72 +123,117 @@ func (h *Handlers) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
 		return
 	}
-	email, msg := normalizeEmail(in.Email)
+	email, msg := NormalizeEmail(in.Email)
 	if msg != "" {
 		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": FieldErrors{"email": {msg}}})
 		return
 	}
-	code, err := h.repo.CreatePasswordReset(r.Context(), email)
+
+	ctx := r.Context()
+	user, err := h.repo.FindUserByEmail(ctx, email)
 	if err != nil {
-		h.fail(w, "gerar recuperação de senha", err)
+		h.fail(w, "buscar e-mail para link do autenticador", err)
 		return
 	}
-	if code == "" {
-		httpx.Write(w, http.StatusNotFound, map[string]any{
-			"message": "Não encontramos uma conta cadastrada com este e-mail.",
+	if user == nil {
+		// Generic response to avoid account enumeration
+		httpx.Write(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"message": "Se o e-mail estiver cadastrado na plataforma, enviamos o link de configuração do Google Authenticator para sua caixa de entrada.",
 		})
 		return
 	}
+
+	tenantID, _ := h.repo.FindDefaultTenantForUser(ctx, user.ID, user.IsMaster)
+	rawToken, err := h.repo.CreateSetupLink(ctx, user.ID, tenantID)
+	if err != nil {
+		h.fail(w, "criar link de ativação", err)
+		return
+	}
+
+	activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+	roleLabel := "Acesso Corporativo"
+	if user.IsMaster {
+		roleLabel = "Acesso Master"
+	}
+	if err := h.mailer.SendAuthenticatorLink(user.Email, user.Name, "", roleLabel, activationURL); err != nil {
+		h.log.Error("enviar e-mail do autenticador", "to", user.Email, "err", err)
+		httpx.Message(w, http.StatusBadGateway, "Não foi possível enviar o e-mail no momento. Verifique as credenciais SMTP no .env.")
+		return
+	}
+
 	httpx.Write(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"email":       email,
-		"previewCode": code,
-		"message":     "Código de verificação gerado com sucesso (válido por 15 minutos).",
+		"ok":      true,
+		"message": "Enviamos o link de ativação do Google Authenticator para o seu e-mail.",
 	})
 }
 
-func (h *Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
+// GetSetupLink validates the activation link token and returns the Base32 key + otpauth:// deep link (NO QR Code).
+func (h *Handlers) GetSetupLink(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	info, err := h.repo.LookupSetupLink(r.Context(), token)
+	if errors.Is(err, ErrInvalidSetupLink) {
+		httpx.Message(w, http.StatusNotFound, "Este link de ativação é inválido ou já expirou. Solicite um novo link na tela de login.")
+		return
+	}
+	if err != nil {
+		h.fail(w, "consultar link de ativação", err)
+		return
+	}
+
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"email":       info.UserEmail,
+		"name":        info.UserName,
+		"companyName": info.CompanyName,
+		"roleName":    info.RoleName,
+		"totpSecret":  info.TOTPSecret,
+		"otpAuthUri":  totp.OTPAuthURI(h.appName, info.UserEmail, info.TOTPSecret),
+	})
+}
+
+// CompleteSetupLink verifies the first 6-digit code generated by Google Authenticator, consumes the link, and starts a session.
+func (h *Handlers) CompleteSetupLink(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Email       string `json:"email"`
-		Code        string `json:"code"`
-		NewPassword string `json:"newPassword"`
+		Token string `json:"token"`
+		Code  string `json:"code"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
 		return
 	}
-	email, msg := normalizeEmail(in.Email)
-	if msg != "" {
-		httpx.Message(w, http.StatusBadRequest, msg)
-		return
-	}
-	code := strings.TrimSpace(in.Code)
-	if len(code) != 6 {
-		httpx.Message(w, http.StatusBadRequest, "Informe o código de 6 dígitos.")
-		return
-	}
-	if len([]rune(in.NewPassword)) < 6 {
-		httpx.Message(w, http.StatusBadRequest, "A nova senha precisa ter ao menos 6 caracteres.")
-		return
-	}
-	hash, err := HashPassword(in.NewPassword)
-	if err != nil {
-		h.fail(w, "hash da nova senha", err)
-		return
-	}
-	err = h.repo.ConsumePasswordReset(r.Context(), email, code, hash)
-	if errors.Is(err, ErrInvalidResetCode) {
-		httpx.Message(w, http.StatusBadRequest, "Código de recuperação inválido ou expirado.")
+	info, err := h.repo.LookupSetupLink(r.Context(), in.Token)
+	if errors.Is(err, ErrInvalidSetupLink) {
+		httpx.Message(w, http.StatusNotFound, "Link de ativação inválido ou expirado.")
 		return
 	}
 	if err != nil {
-		h.fail(w, "redefinir senha", err)
+		h.fail(w, "consultar link para ativação", err)
 		return
 	}
-	httpx.Write(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"message": "Senha redefinida com sucesso! Você já pode entrar com a nova senha.",
-	})
+
+	if !totp.Verify(info.TOTPSecret, in.Code, time.Now()) {
+		httpx.Message(w, http.StatusUnauthorized, "Código do Google Authenticator inválido. Confirme os 6 dígitos atuais no aplicativo.")
+		return
+	}
+
+	if err := h.repo.ConsumeSetupLink(r.Context(), info.LinkID, info.UserID); err != nil {
+		h.fail(w, "consumir link de ativação", err)
+		return
+	}
+
+	tenantID := info.TenantID
+	if tenantID == "" {
+		tenantID, err = h.repo.FindDefaultTenantForUser(r.Context(), info.UserID, info.IsMaster)
+		if err != nil {
+			h.fail(w, "resolver empresa ao ativar", err)
+			return
+		}
+	}
+	if tenantID == "" {
+		httpx.Message(w, http.StatusForbidden, "Nenhuma empresa ativa vinculada a este e-mail.")
+		return
+	}
+	h.enter(w, r, info.UserID, tenantID, http.StatusOK)
 }
 
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
@@ -194,10 +249,11 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 	httpx.Write(w, http.StatusOK, SessionFromContext(r.Context()))
 }
 
+// SwitchTenant allows Master to switch to any company, and any multi-company user to switch between their linked companies.
 func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 	sess := SessionFromContext(r.Context())
-	if sess == nil || sess.User.Role != "developer" {
-		httpx.Message(w, http.StatusForbidden, "Apenas usuários de nível desenvolvedor podem alternar entre empresas.")
+	if sess == nil {
+		httpx.Message(w, http.StatusUnauthorized, "Sessão inválida.")
 		return
 	}
 	var in struct {
@@ -207,7 +263,17 @@ func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
 		return
 	}
-	if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), strings.TrimSpace(in.TenantID)); err != nil {
+	targetID := strings.TrimSpace(in.TenantID)
+	allowed, err := h.repo.UserCanAccessTenant(r.Context(), sess.User.ID, sess.User.IsMaster, targetID)
+	if err != nil {
+		h.fail(w, "verificar acesso à empresa", err)
+		return
+	}
+	if !allowed {
+		httpx.Message(w, http.StatusForbidden, "Você não possui vínculo ou permissão nesta empresa.")
+		return
+	}
+	if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), targetID); err != nil {
 		h.fail(w, "alternar empresa ativa", err)
 		return
 	}

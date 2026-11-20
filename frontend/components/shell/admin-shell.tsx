@@ -16,6 +16,7 @@ import {
   Menu,
   Search,
   Shield,
+  ShieldCheck,
   Users,
   X,
   type LucideIcon,
@@ -35,6 +36,7 @@ export type ModuleKey =
   | "epis"
   | "inventory-items"
   | "finance"
+  | "permissions"
   | "companies";
 
 interface NavItem {
@@ -42,17 +44,20 @@ interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
-  devOnly?: boolean;
+  permission?: string;
+  accessManageOnly?: boolean;
+  masterOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "contracts", label: "Clientes e contratos", href: "/admin/contracts", icon: Users },
-  { key: "service-orders", label: "Ordens de serviço", href: "/admin/service-orders", icon: ClipboardList },
-  { key: "employees", label: "Colaboradores e escalas", href: "/admin/employees", icon: Calendar },
-  { key: "epis", label: "Controle de EPIs", href: "/admin/epis", icon: Shield },
-  { key: "inventory-items", label: "Almoxarifado e ativos", href: "/admin/inventory-items", icon: Archive },
-  { key: "finance", label: "Gestão financeira", href: "/admin/finance", icon: BarChart3 },
-  { key: "companies", label: "Multi-Empresas", href: "/admin/companies", icon: Layers, devOnly: true },
+  { key: "contracts", label: "Clientes e contratos", href: "/admin/contracts", icon: Users, permission: "contracts:view" },
+  { key: "service-orders", label: "Ordens de serviço", href: "/admin/service-orders", icon: ClipboardList, permission: "service_orders:view" },
+  { key: "employees", label: "Colaboradores e escalas", href: "/admin/employees", icon: Calendar, permission: "employees:view" },
+  { key: "epis", label: "Controle de EPIs", href: "/admin/epis", icon: Shield, permission: "epis:view" },
+  { key: "inventory-items", label: "Almoxarifado e ativos", href: "/admin/inventory-items", icon: Archive, permission: "inventory:view" },
+  { key: "finance", label: "Gestão financeira", href: "/admin/finance", icon: BarChart3, permission: "finance:view" },
+  { key: "permissions", label: "Roles e permissões", href: "/admin/permissions", icon: ShieldCheck, accessManageOnly: true },
+  { key: "companies", label: "Multi-Empresas", href: "/admin/companies", icon: Layers, masterOnly: true },
 ];
 
 interface AdminShellProps {
@@ -81,29 +86,41 @@ export function AdminShell({
   const [companyQuery, setCompanyQuery] = useState("");
   const [switchedCompanyNotice, setSwitchedCompanyNotice] = useState<string | null>(null);
 
-  const isDev = session.user.role === "developer";
-  const visibleItems = NAV_ITEMS.filter((item) => !item.devOnly || isDev);
+  const isMaster = session.user.isMaster;
+  const canManageAccess = isMaster || session.role.key === "owner" || Boolean(session.role.permissions["access:manage"]);
+
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.masterOnly) return isMaster;
+    if (item.accessManageOnly) return canManageAccess;
+    if (item.permission) {
+      return isMaster || session.role.key === "owner" || Boolean(session.role.permissions[item.permission]);
+    }
+    return true;
+  });
+
   const activeCompany = companies.find((c) => c.id === session.tenant.id);
 
-  // Confirma visualmente a troca de empresa com o nome e CNPJ da empresa ativa
   useEffect(() => {
     try {
       const storageKey = "tercerize_active_tenant_id";
       const prev = window.sessionStorage.getItem(storageKey);
       if (prev && prev !== session.tenant.id) {
-        setSwitchedCompanyNotice(`${session.tenant.name} (CNPJ: ${session.tenant.cnpj})`);
+        setSwitchedCompanyNotice(`${session.tenant.name} (CNPJ: ${session.tenant.cnpj}) · Função: ${session.role.name}`);
       }
       window.sessionStorage.setItem(storageKey, session.tenant.id);
     } catch {
       // ignore storage errors
     }
-  }, [session.tenant.id, session.tenant.name, session.tenant.cnpj]);
+  }, [session.tenant.id, session.tenant.name, session.tenant.cnpj, session.role.name]);
 
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
     if (!q) return companies;
     return companies.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.cnpj.toLowerCase().includes(q),
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.cnpj.toLowerCase().includes(q) ||
+        c.userRoleName.toLowerCase().includes(q),
     );
   }, [companies, companyQuery]);
 
@@ -172,7 +189,7 @@ export function AdminShell({
           </ul>
         </nav>
 
-        {/* Bottom User Profile Pill */}
+        {/* Bottom User Profile Pill with Role Badge */}
         <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-white/10 px-3 py-2.5">
           <div
             aria-hidden="true"
@@ -182,10 +199,10 @@ export function AdminShell({
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold text-slate-900 dark:text-white">
-              {session.user.name.replace(" (Desenvolvedor)", "")}
+              {session.user.name}
             </p>
-            <p className="truncate text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              {isDev ? "Desenvolvedor" : "Gestor administrador"}
+            <p className="truncate text-[11px] font-semibold text-[#3B68F7] dark:text-blue-400">
+              {isMaster ? "Master" : session.role.name}
             </p>
           </div>
           <form action={logout}>
@@ -203,7 +220,7 @@ export function AdminShell({
 
       {/* Main Column */}
       <div className="flex min-w-0 flex-1 flex-col gap-4 sm:gap-5 overflow-hidden">
-        {/* Top Floating Glass Bar with Persistent Active Company Context */}
+        {/* Top Floating Glass Bar with Multi-Company Switcher (Master OR any user linked to > 1 company) */}
         <header className="relative z-20 flex shrink-0 items-center justify-between gap-2 rounded-2xl glass-surface px-3.5 py-2.5 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -217,7 +234,12 @@ export function AdminShell({
 
             <div className="hidden lg:flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
               <Building2 className="size-3.5 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
-              <span>Contexto isolado por empresa</span>
+              <span>
+                Função nesta empresa:{" "}
+                <strong className="text-slate-900 dark:text-white">
+                  {isMaster ? "Master (Acesso Global)" : session.role.name}
+                </strong>
+              </span>
             </div>
           </div>
 
@@ -226,14 +248,14 @@ export function AdminShell({
               Empresa ativa:
             </span>
 
-            {isDev && companies.length > 1 ? (
+            {companies.length > 1 ? (
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setPickerOpen((v) => !v)}
                   aria-expanded={pickerOpen}
                   aria-haspopup="listbox"
-                  aria-label={`Empresa ativa: ${session.tenant.name}. Clique para trocar de empresa`}
+                  aria-label={`Empresa ativa: ${session.tenant.name}. Clique para alternar empresa`}
                   className="inline-flex min-h-9 items-center gap-2 rounded-full border border-slate-300/90 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white shadow-2xs hover:border-[#3B68F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] cursor-pointer"
                 >
                   <span className="size-2 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
@@ -252,15 +274,17 @@ export function AdminShell({
                     <div className="absolute right-0 mt-2 z-40 w-80 rounded-2xl solid-surface p-3 shadow-xl space-y-2.5">
                       <div className="flex items-center justify-between px-1">
                         <span className="text-xs font-bold text-slate-900 dark:text-white">
-                          Alternar empresa ativa ({companies.length})
+                          Suas empresas ({companies.length})
                         </span>
-                        <Link
-                          href="/admin/companies"
-                          onClick={() => setPickerOpen(false)}
-                          className="text-[11px] font-semibold text-[#3B68F7] dark:text-blue-400 hover:underline"
-                        >
-                          Gerenciar todas
-                        </Link>
+                        {isMaster && (
+                          <Link
+                            href="/admin/companies"
+                            onClick={() => setPickerOpen(false)}
+                            className="text-[11px] font-semibold text-[#3B68F7] dark:text-blue-400 hover:underline"
+                          >
+                            Gerenciar empresas
+                          </Link>
+                        )}
                       </div>
 
                       <div className="relative">
@@ -269,14 +293,14 @@ export function AdminShell({
                           aria-hidden="true"
                         />
                         <label htmlFor="tenant-search-input" className="sr-only">
-                          Buscar empresa por razão social ou CNPJ
+                          Buscar empresa por razão social, CNPJ ou função
                         </label>
                         <input
                           id="tenant-search-input"
                           type="search"
                           value={companyQuery}
                           onChange={(e) => setCompanyQuery(e.target.value)}
-                          placeholder="Filtrar por nome ou CNPJ…"
+                          placeholder="Filtrar por nome, CNPJ ou função…"
                           className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/80 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
                         />
                       </div>
@@ -307,8 +331,9 @@ export function AdminShell({
                                 >
                                   <div className="min-w-0">
                                     <p className="truncate">{c.name}</p>
-                                    <p className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
-                                      CNPJ: {c.cnpj} · {c.contractsCount} contrato(s)
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                      <span className="font-mono">{c.cnpj}</span> ·{" "}
+                                      <strong className="text-slate-700 dark:text-slate-300">{c.userRoleName}</strong>
                                     </p>
                                   </div>
                                   {active && <Check className="size-4 shrink-0" aria-hidden="true" />}
@@ -336,7 +361,6 @@ export function AdminShell({
 
         {/* Scrollable Content */}
         <main className="flex-1 overflow-y-auto pr-1 space-y-5">
-          {/* Confirmação visual ao alternar de empresa */}
           {switchedCompanyNotice && (
             <div
               role="status"
@@ -345,8 +369,7 @@ export function AdminShell({
               <div className="flex items-center gap-2.5 font-semibold text-emerald-900 dark:text-emerald-200">
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                 <span>
-                  Empresa ativa alterada para <strong>{switchedCompanyNotice}</strong>. Todos os cadastros e listas
-                  abaixo pertencem a este contexto.
+                  Empresa ativa alterada para <strong>{switchedCompanyNotice}</strong>.
                 </span>
               </div>
               <button
@@ -360,7 +383,6 @@ export function AdminShell({
             </div>
           )}
 
-          {/* Page Title & Pill Action Row */}
           {!hideHeader && (
             <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
               <div>
@@ -375,7 +397,6 @@ export function AdminShell({
             </div>
           )}
 
-          {/* Trilha guiada da primeira operação quando a empresa ativa está em implantação */}
           <OnboardingBanner activeCompany={activeCompany} tenantName={session.tenant.name} />
 
           {children}

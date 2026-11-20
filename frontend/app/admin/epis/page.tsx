@@ -1,12 +1,12 @@
 import { EPIsView } from "@/components/modules/epis-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import { listCompanies, listEmployees, listEPIDeliveries } from "@/lib/operations/repository";
 
 export default async function EPIsPage() {
-  const session = await requireSession();
+  const session = await requirePermission("epis:view");
   const [companies, deliveries, employees] = await Promise.all([
-    listCompanies(),
+    listCompanies(session.user.id, session.user.isMaster),
     listEPIDeliveries(session.tenant.id),
     listEmployees(session.tenant.id),
   ]);

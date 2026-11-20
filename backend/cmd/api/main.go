@@ -15,6 +15,7 @@ import (
 	"tercerize/backend/internal/auth"
 	"tercerize/backend/internal/config"
 	"tercerize/backend/internal/db"
+	"tercerize/backend/internal/mailer"
 	"tercerize/backend/internal/operations"
 	"tercerize/backend/internal/seed"
 	"tercerize/backend/migrations"
@@ -50,7 +51,7 @@ func run(log *slog.Logger) error {
 	if err := seed.Ensure(ctx, pool); err != nil {
 		return err
 	}
-	log.Info("seed multi-empresa e credencial developer verificados")
+	log.Info("seed multi-empresa, RBAC e acesso Master verificados")
 
 	redisOpt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
@@ -62,9 +63,10 @@ func run(log *slog.Logger) error {
 		log.Warn("Redis não respondeu ao subir; limite de login desligado temporariamente", "err", err)
 	}
 
+	mailSender := mailer.New(cfg.Mail, log)
 	authRepo := auth.NewRepository(pool)
-	authHandlers := auth.NewHandlers(authRepo, auth.NewLoginLimiter(rdb), cfg.CookieSecure, log)
-	opHandlers := operations.NewHandlers(pool, log)
+	authHandlers := auth.NewHandlers(authRepo, auth.NewLoginLimiter(rdb), mailSender, cfg.AppName, cfg.AppURL, cfg.CookieSecure, log)
+	opHandlers := operations.NewHandlers(pool, authRepo, mailSender, cfg.AppURL, log)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -73,7 +75,7 @@ func run(log *slog.Logger) error {
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("API Tercerize no ar", "addr", server.Addr)
+		log.Info("API Tercerize no ar", "addr", server.Addr, "smtp_configured", mailSender.Configured())
 		errCh <- server.ListenAndServe()
 	}()
 

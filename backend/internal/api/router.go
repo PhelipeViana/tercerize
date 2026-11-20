@@ -31,21 +31,30 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 	})
 
 	r.Route("/api", func(r chi.Router) {
-		r.Post("/auth/register", authHandlers.Register)
+		// Autenticação exclusiva via E-mail + Google Authenticator (TOTP) e link enviado por e-mail
 		r.Post("/auth/login", authHandlers.Login)
 		r.Post("/auth/logout", authHandlers.Logout)
-		r.Post("/auth/forgot-password", authHandlers.ForgotPassword)
-		r.Post("/auth/reset-password", authHandlers.ResetPassword)
+		r.Post("/auth/request-link", authHandlers.RequestSetupLink)
+		r.Get("/auth/setup-link", authHandlers.GetSetupLink)
+		r.Post("/auth/setup-link/verify", authHandlers.CompleteSetupLink)
 
 		r.Group(func(r chi.Router) {
 			r.Use(authHandlers.Require)
 			r.Get("/me", authHandlers.Me)
 
-			// Multi-Empresas (Nível Desenvolvedor)
+			// Multi-Empresas (troca para Master ou usuários vinculados a múltiplas empresas; criação exclusiva Master)
 			r.Post("/tenants/switch", authHandlers.SwitchTenant)
 			r.Post("/tenants", opHandlers.CreateCompany)
 
-			// 6 Módulos Operacionais
+			// Roles e Permissões (exclusivo Dono da empresa ativa ou Master)
+			r.Post("/rbac/roles", opHandlers.CreateOrUpdateRole)
+			r.Post("/rbac/roles/delete", opHandlers.DeleteRole)
+			r.Post("/rbac/members", opHandlers.AddMember)
+			r.Post("/rbac/members/role", opHandlers.UpdateMemberRole)
+			r.Post("/rbac/members/remove", opHandlers.RemoveMember)
+			r.Post("/rbac/members/resend-link", opHandlers.ResendMemberLink)
+
+			// 6 Módulos Operacionais (com validação de permissão por módulo)
 			r.Post("/clients", opHandlers.CreateClient)
 			r.Post("/contracts", opHandlers.CreateContract)
 			r.Post("/employees", opHandlers.CreateEmployee)

@@ -1,12 +1,12 @@
 import { FinanceView } from "@/components/modules/finance-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import { listCompanies, listContracts, listFinancialEntries } from "@/lib/operations/repository";
 
 export default async function FinancePage() {
-  const session = await requireSession();
+  const session = await requirePermission("finance:view");
   const [companies, entries, contracts] = await Promise.all([
-    listCompanies(),
+    listCompanies(session.user.id, session.user.isMaster),
     listFinancialEntries(session.tenant.id),
     listContracts(session.tenant.id),
   ]);

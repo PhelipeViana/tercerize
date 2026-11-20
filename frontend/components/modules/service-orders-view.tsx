@@ -466,35 +466,32 @@ export function ServiceOrdersView({
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                          os.priority === "Urgente"
-                            ? "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
-                            : os.priority === "Alta"
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                              : "bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${os.priority === "Urgente"
+                          ? "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
+                          : os.priority === "Alta"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                            : "bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300"
+                          }`}
                       >
                         {os.priority}
                       </span>
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                          os.status === "Concluída"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
-                            : os.status === "Em Execução"
-                              ? "bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300"
-                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${os.status === "Concluída"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
+                          : os.status === "Em Execução"
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                          }`}
                       >
                         <span
-                          className={`size-1.5 rounded-full ${
-                            os.status === "Concluída"
-                              ? "bg-emerald-600"
-                              : os.status === "Em Execução"
-                                ? "bg-blue-600"
-                                : "bg-amber-600"
-                          }`}
+                          className={`size-1.5 rounded-full ${os.status === "Concluída"
+                            ? "bg-emerald-600"
+                            : os.status === "Em Execução"
+                              ? "bg-blue-600"
+                              : "bg-amber-600"
+                            }`}
                           aria-hidden="true"
                         />
                         {os.status}

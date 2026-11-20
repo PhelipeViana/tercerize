@@ -3,37 +3,82 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"fmt"
-	"math/big"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"tercerize/backend/internal/totp"
 )
 
 type User struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Email           string `json:"email"`
+	IsMaster        bool   `json:"isMaster"`
+	TOTPConfigured  bool   `json:"totpConfigured"`
 }
 
 type Tenant struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	CNPJ   string `json:"cnpj"`
-	Active bool   `json:"active"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	CNPJ       string `json:"cnpj"`
+	OwnerName  string `json:"ownerName"`
+	OwnerEmail string `json:"ownerEmail"`
+	Active     bool   `json:"active"`
+}
+
+type RoleInfo struct {
+	ID          string          `json:"id"`
+	Key         string          `json:"key"`
+	Name        string          `json:"name"`
+	Permissions map[string]bool `json:"permissions"`
 }
 
 type SessionContext struct {
-	User   User   `json:"user"`
-	Tenant Tenant `json:"tenant"`
+	User   User     `json:"user"`
+	Tenant Tenant   `json:"tenant"`
+	Role   RoleInfo `json:"role"`
 }
 
-var ErrEmailTaken = errors.New("e-mail já cadastrado")
-var ErrInvalidResetCode = errors.New("código de recuperação inválido ou expirado")
+func (s *SessionContext) CanManageAccess() bool {
+	if s == nil {
+		return false
+	}
+	return s.User.IsMaster || s.Role.Key == "owner" || s.Role.Permissions["access:manage"]
+}
+
+func (s *SessionContext) HasPermission(perm string) bool {
+	if s == nil {
+		return false
+	}
+	if s.User.IsMaster || s.Role.Key == "owner" {
+		return true
+	}
+	return s.Role.Permissions[perm]
+}
+
+var AllPermissionsTrue = map[string]bool{
+	"contracts:view":      true,
+	"contracts:write":     true,
+	"service_orders:view": true,
+	"service_orders:write": true,
+	"employees:view":      true,
+	"employees:write":     true,
+	"epis:view":           true,
+	"epis:write":          true,
+	"inventory:view":      true,
+	"inventory:write":     true,
+	"finance:view":        true,
+	"finance:write":       true,
+	"access:manage":       true,
+}
+
+var ErrInvalidSetupLink = errors.New("link de ativação inválido ou expirado")
 
 type Repository struct {
 	pool *pgxpool.Pool
@@ -43,105 +88,219 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func (r *Repository) CreateAccount(ctx context.Context, companyName, cnpj, name, email, passwordHash string) (userID, tenantID string, err error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := tx.QueryRow(ctx, "INSERT INTO tenants (name, cnpj) VALUES ($1, $2) RETURNING id", companyName, cnpj).Scan(&tenantID); err != nil {
-		return "", "", err
-	}
-	err = tx.QueryRow(ctx,
-		"INSERT INTO users (tenant_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, 'admin') RETURNING id",
-		tenantID, name, email, passwordHash).Scan(&userID)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return "", "", ErrEmailTaken
-		}
-		return "", "", err
-	}
-	return userID, tenantID, tx.Commit(ctx)
-}
-
 type LoginUser struct {
-	ID           string
-	TenantID     string
-	PasswordHash string
-	Role         string
+	ID         string
+	Name       string
+	Email      string
+	IsMaster   bool
+	TOTPSecret string
 }
 
-func (r *Repository) FindUserForLogin(ctx context.Context, email string) (*LoginUser, error) {
+func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*LoginUser, error) {
 	var u LoginUser
 	err := r.pool.QueryRow(ctx,
-		`SELECT u.id, u.tenant_id, u.password_hash, u.role
-		   FROM users u
-		  WHERE lower(u.email) = lower($1)`, email).Scan(&u.ID, &u.TenantID, &u.PasswordHash, &u.Role)
+		`SELECT id, name, email, is_master, totp_secret
+		   FROM users
+		  WHERE lower(email) = lower($1)`, email).
+		Scan(&u.ID, &u.Name, &u.Email, &u.IsMaster, &u.TOTPSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	// Guarantee a TOTP secret exists even for migrated users
+	if strings.TrimSpace(u.TOTPSecret) == "" {
+		secret, genErr := totp.GenerateSecret()
+		if genErr != nil {
+			return nil, genErr
+		}
+		if _, updErr := r.pool.Exec(ctx, `UPDATE users SET totp_secret = $1 WHERE id = $2`, secret, u.ID); updErr != nil {
+			return nil, updErr
+		}
+		u.TOTPSecret = secret
+	}
 	return &u, nil
 }
 
-func (r *Repository) CreatePasswordReset(ctx context.Context, email string) (string, error) {
-	user, err := r.FindUserForLogin(ctx, email)
-	if err != nil || user == nil {
-		return "", err
+// EnsureUserWithTOTP finds an existing user by email or creates one with a generated Base32 TOTP secret.
+func (r *Repository) EnsureUserWithTOTP(ctx context.Context, tx pgx.Tx, name, email string) (userID string, totpSecret string, created bool, err error) {
+	err = tx.QueryRow(ctx,
+		`SELECT id, totp_secret FROM users WHERE lower(email) = lower($1)`, email).
+		Scan(&userID, &totpSecret)
+	if err == nil {
+		if strings.TrimSpace(totpSecret) == "" {
+			totpSecret, err = totp.GenerateSecret()
+			if err != nil {
+				return "", "", false, err
+			}
+			_, err = tx.Exec(ctx, `UPDATE users SET totp_secret = $1 WHERE id = $2`, totpSecret, userID)
+			if err != nil {
+				return "", "", false, err
+			}
+		}
+		return userID, totpSecret, false, nil
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(900000))
-	if err != nil {
-		return "", err
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, err
 	}
-	code := fmt.Sprintf("%06d", n.Int64()+100000)
-	expiresAt := time.Now().Add(15 * time.Minute)
 
-	_, err = r.pool.Exec(ctx,
-		`INSERT INTO password_resets (user_id, code, expires_at) VALUES ($1, $2, $3)`,
-		user.ID, code, expiresAt)
+	totpSecret, err = totp.GenerateSecret()
 	if err != nil {
-		return "", err
+		return "", "", false, err
 	}
-	return code, nil
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (name, email, password_hash, role, is_master, totp_secret)
+		 VALUES ($1, lower($2), '', 'operator', false, $3)
+		 RETURNING id`,
+		strings.TrimSpace(name), strings.TrimSpace(email), totpSecret).
+		Scan(&userID)
+	if err != nil {
+		return "", "", false, err
+	}
+	return userID, totpSecret, true, nil
 }
 
-func (r *Repository) ConsumePasswordReset(ctx context.Context, email, code, newPasswordHash string) error {
+func (r *Repository) MarkTOTPConfigured(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET totp_configured_at = COALESCE(totp_configured_at, now()) WHERE id = $1`, userID)
+	return err
+}
+
+func (r *Repository) CreateSetupLink(ctx context.Context, userID, tenantID string) (string, error) {
+	rawBytes := make([]byte, 24)
+	if _, err := rand.Read(rawBytes); err != nil {
+		return "", err
+	}
+	rawToken := base64.RawURLEncoding.EncodeToString(rawBytes)
+	tokenHash := hashToken(rawToken)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	var tenantPtr *string
+	if strings.TrimSpace(tenantID) != "" {
+		t := strings.TrimSpace(tenantID)
+		tenantPtr = &t
+	}
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO auth_setup_links (user_id, tenant_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		userID, tenantPtr, tokenHash, expiresAt)
+	if err != nil {
+		return "", err
+	}
+	return rawToken, nil
+}
+
+type SetupLinkInfo struct {
+	LinkID      string
+	UserID      string
+	UserName    string
+	UserEmail   string
+	IsMaster    bool
+	TOTPSecret  string
+	TenantID    string
+	CompanyName string
+	RoleName    string
+}
+
+func (r *Repository) LookupSetupLink(ctx context.Context, rawToken string) (*SetupLinkInfo, error) {
+	if strings.TrimSpace(rawToken) == "" {
+		return nil, ErrInvalidSetupLink
+	}
+	var info SetupLinkInfo
+	var tenantID, companyName, roleName *string
+	err := r.pool.QueryRow(ctx,
+		`SELECT l.id, u.id, u.name, u.email, u.is_master, u.totp_secret,
+		        l.tenant_id::text, t.name, tr.name
+		   FROM auth_setup_links l
+		   JOIN users u ON u.id = l.user_id
+		   LEFT JOIN tenants t ON t.id = l.tenant_id
+		   LEFT JOIN tenant_memberships tm ON tm.tenant_id = l.tenant_id AND tm.user_id = u.id
+		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
+		  WHERE l.token_hash = $1
+		    AND l.used_at IS NULL
+		    AND l.expires_at > now()`,
+		hashToken(strings.TrimSpace(rawToken))).
+		Scan(&info.LinkID, &info.UserID, &info.UserName, &info.UserEmail, &info.IsMaster, &info.TOTPSecret,
+			&tenantID, &companyName, &roleName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrInvalidSetupLink
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tenantID != nil {
+		info.TenantID = *tenantID
+	}
+	if companyName != nil {
+		info.CompanyName = *companyName
+	}
+	if roleName != nil {
+		info.RoleName = *roleName
+	} else if info.IsMaster {
+		info.RoleName = "Master"
+	}
+	if strings.TrimSpace(info.TOTPSecret) == "" {
+		secret, genErr := totp.GenerateSecret()
+		if genErr != nil {
+			return nil, genErr
+		}
+		_, _ = r.pool.Exec(ctx, `UPDATE users SET totp_secret = $1 WHERE id = $2`, secret, info.UserID)
+		info.TOTPSecret = secret
+	}
+	return &info, nil
+}
+
+func (r *Repository) ConsumeSetupLink(ctx context.Context, linkID, userID string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	var resetID, userID string
-	err = tx.QueryRow(ctx,
-		`SELECT pr.id, pr.user_id
-		   FROM password_resets pr
-		   JOIN users u ON u.id = pr.user_id
-		  WHERE lower(u.email) = lower($1)
-		    AND pr.code = $2
-		    AND pr.used = false
-		    AND pr.expires_at > now()
-		  ORDER BY pr.created_at DESC
-		  LIMIT 1`,
-		email, code).Scan(&resetID, &userID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrInvalidResetCode
-	}
-	if err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE auth_setup_links SET used_at = now() WHERE id = $1`, linkID); err != nil {
 		return err
 	}
-
-	if _, err := tx.Exec(ctx, `UPDATE password_resets SET used = true WHERE id = $1`, resetID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, newPasswordHash, userID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET totp_configured_at = now() WHERE id = $1`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *Repository) FindDefaultTenantForUser(ctx context.Context, userID string, isMaster bool) (string, error) {
+	var tenantID string
+	if isMaster {
+		err := r.pool.QueryRow(ctx, `SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1`).Scan(&tenantID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return tenantID, err
+	}
+	err := r.pool.QueryRow(ctx,
+		`SELECT tm.tenant_id
+		   FROM tenant_memberships tm
+		   JOIN tenants t ON t.id = tm.tenant_id
+		  WHERE tm.user_id = $1 AND t.active = true
+		  ORDER BY tm.created_at ASC
+		  LIMIT 1`, userID).Scan(&tenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return tenantID, err
+}
+
+func (r *Repository) UserCanAccessTenant(ctx context.Context, userID string, isMaster bool, tenantID string) (bool, error) {
+	if isMaster {
+		var exists bool
+		err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE id = $1)`, tenantID).Scan(&exists)
+		return exists, err
+	}
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(
+		   SELECT 1 FROM tenant_memberships tm
+		   JOIN tenants t ON t.id = tm.tenant_id
+		  WHERE tm.user_id = $1 AND tm.tenant_id = $2 AND t.active = true
+		)`, userID, tenantID).Scan(&exists)
+	return exists, err
 }
 
 func (r *Repository) InsertSession(ctx context.Context, userID, tenantID, tokenHash string, expiresAt time.Time) error {
@@ -173,18 +332,56 @@ func (r *Repository) SwitchActiveTenant(ctx context.Context, token string, tenan
 
 func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*SessionContext, error) {
 	var s SessionContext
+	var totpConfiguredAt *time.Time
+	var roleID, roleKey, roleName *string
+	var permsRaw []byte
+
 	err := r.pool.QueryRow(ctx,
-		`SELECT u.id, u.name, u.email, u.role, t.id, t.name, t.cnpj, t.active
+		`SELECT u.id, u.name, u.email, u.is_master, u.totp_configured_at,
+		        t.id, t.name, t.cnpj, t.owner_name, t.owner_email, t.active,
+		        tr.id::text, tr.key, tr.name, tr.permissions
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
 		   JOIN tenants t ON t.id = s.active_tenant_id
+		   LEFT JOIN tenant_memberships tm ON tm.tenant_id = t.id AND tm.user_id = u.id
+		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
 		  WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).
-		Scan(&s.User.ID, &s.User.Name, &s.User.Email, &s.User.Role, &s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.Active)
+		Scan(
+			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &totpConfiguredAt,
+			&s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.OwnerName, &s.Tenant.OwnerEmail, &s.Tenant.Active,
+			&roleID, &roleKey, &roleName, &permsRaw,
+		)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	s.User.TOTPConfigured = totpConfiguredAt != nil
+
+	if s.User.IsMaster {
+		s.Role = RoleInfo{
+			ID:          "master",
+			Key:         "master",
+			Name:        "Master",
+			Permissions: AllPermissionsTrue,
+		}
+		return &s, nil
+	}
+
+	// Non-master user MUST still have a valid membership in the active tenant
+	if roleID == nil || roleKey == nil || roleName == nil {
+		return nil, nil
+	}
+	perms := map[string]bool{}
+	if len(permsRaw) > 0 {
+		_ = json.Unmarshal(permsRaw, &perms)
+	}
+	s.Role = RoleInfo{
+		ID:          *roleID,
+		Key:         *roleKey,
+		Name:        *roleName,
+		Permissions: perms,
 	}
 	return &s, nil
 }

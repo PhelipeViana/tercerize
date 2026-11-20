@@ -1,6 +1,6 @@
 import { ContractsView } from "@/components/modules/contracts-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import { listClients, listCompanies, listContracts } from "@/lib/operations/repository";
 
 interface PageProps {
@@ -13,10 +13,10 @@ interface PageProps {
 }
 
 export default async function ContractsPage({ searchParams }: PageProps) {
-  const session = await requireSession();
+  const session = await requirePermission("contracts:view");
   const params = await searchParams;
   const [companies, contracts, clients] = await Promise.all([
-    listCompanies(),
+    listCompanies(session.user.id, session.user.isMaster),
     listContracts(session.tenant.id),
     listClients(session.tenant.id),
   ]);

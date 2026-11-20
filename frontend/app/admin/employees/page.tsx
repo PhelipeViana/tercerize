@@ -1,6 +1,6 @@
 import { EmployeesView } from "@/components/modules/employees-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import {
   listCompanies,
   listContracts,
@@ -15,11 +15,11 @@ interface PageProps {
 }
 
 export default async function EmployeesPage({ searchParams }: PageProps) {
-  const session = await requireSession();
+  const session = await requirePermission("employees:view");
   const params = await searchParams;
   const [companies, employees, contracts, serviceOrders, epiDeliveries, inventoryMovements] =
     await Promise.all([
-      listCompanies(),
+      listCompanies(session.user.id, session.user.isMaster),
       listEmployees(session.tenant.id),
       listContracts(session.tenant.id),
       listServiceOrders(session.tenant.id),

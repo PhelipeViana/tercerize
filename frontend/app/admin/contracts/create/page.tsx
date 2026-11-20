@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CreateContractForm } from "@/components/modules/create-contract-form";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { requireSession } from "@/lib/auth/dal";
+import { requirePermission } from "@/lib/auth/dal";
 import { listClients, listCompanies } from "@/lib/operations/repository";
 
 interface PageProps {
@@ -10,10 +10,10 @@ interface PageProps {
 }
 
 export default async function CreateContractPage({ searchParams }: PageProps) {
-  const session = await requireSession();
+  const session = await requirePermission("contracts:write");
   const params = await searchParams;
   const [companies, clients] = await Promise.all([
-    listCompanies(),
+    listCompanies(session.user.id, session.user.isMaster),
     listClients(session.tenant.id),
   ]);
 

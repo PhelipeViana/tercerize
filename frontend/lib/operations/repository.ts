@@ -5,11 +5,39 @@ export interface CompanyRow {
   id: string;
   name: string;
   cnpj: string;
+  ownerName: string;
+  ownerEmail: string;
   active: boolean;
+  userRoleName: string;
+  userRoleKey: string;
   clientsCount: number;
   contractsCount: number;
   employeesCount: number;
   serviceOrdersCount: number;
+}
+
+export interface TenantRoleRow {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  permissions: Record<string, boolean>;
+  isSystem: boolean;
+  membersCount: number;
+}
+
+export interface TenantMemberRow {
+  membershipId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  isMaster: boolean;
+  totpConfigured: boolean;
+  roleId: string;
+  roleKey: string;
+  roleName: string;
+  otherCompaniesCount: number;
+  createdAt: string;
 }
 
 export interface ClientRow {
@@ -122,34 +150,160 @@ export interface FinancialEntryRow {
   updatedAt: string;
 }
 
-export async function listCompanies(): Promise<CompanyRow[]> {
+export async function listCompanies(userId?: string, isMaster = true): Promise<CompanyRow[]> {
+  if (isMaster || !userId) {
+    const { rows } = await getPool().query<{
+      id: string;
+      name: string;
+      cnpj: string;
+      owner_name: string;
+      owner_email: string;
+      active: boolean;
+      clients_count: string;
+      contracts_count: string;
+      employees_count: string;
+      os_count: string;
+    }>(
+      `SELECT t.id, t.name, t.cnpj,
+              COALESCE(t.owner_name, '') AS owner_name,
+              COALESCE(t.owner_email, '') AS owner_email,
+              t.active,
+              (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
+              (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
+              (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
+              (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
+         FROM tenants t
+        ORDER BY t.created_at ASC`,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      cnpj: r.cnpj,
+      ownerName: r.owner_name,
+      ownerEmail: r.owner_email,
+      active: r.active,
+      userRoleName: "Master",
+      userRoleKey: "master",
+      clientsCount: Number(r.clients_count),
+      contractsCount: Number(r.contracts_count),
+      employeesCount: Number(r.employees_count),
+      serviceOrdersCount: Number(r.os_count),
+    }));
+  }
+
   const { rows } = await getPool().query<{
     id: string;
     name: string;
     cnpj: string;
+    owner_name: string;
+    owner_email: string;
     active: boolean;
+    role_name: string;
+    role_key: string;
     clients_count: string;
     contracts_count: string;
     employees_count: string;
     os_count: string;
   }>(
-    `SELECT t.id, t.name, t.cnpj, t.active,
+    `SELECT t.id, t.name, t.cnpj,
+            COALESCE(t.owner_name, '') AS owner_name,
+            COALESCE(t.owner_email, '') AS owner_email,
+            t.active,
+            tr.name AS role_name,
+            tr.key AS role_key,
             (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
             (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
             (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
             (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
-       FROM tenants t
+       FROM tenant_memberships tm
+       JOIN tenants t ON t.id = tm.tenant_id
+       JOIN tenant_roles tr ON tr.id = tm.role_id
+      WHERE tm.user_id = $1 AND t.active = true
       ORDER BY t.created_at ASC`,
+    [userId],
   );
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     cnpj: r.cnpj,
+    ownerName: r.owner_name,
+    ownerEmail: r.owner_email,
     active: r.active,
+    userRoleName: r.role_name,
+    userRoleKey: r.role_key,
     clientsCount: Number(r.clients_count),
     contractsCount: Number(r.contracts_count),
     employeesCount: Number(r.employees_count),
     serviceOrdersCount: Number(r.os_count),
+  }));
+}
+
+export async function listTenantRoles(tenantId: string): Promise<TenantRoleRow[]> {
+  const { rows } = await getPool().query<{
+    id: string;
+    key: string;
+    name: string;
+    description: string;
+    permissions: Record<string, boolean> | null;
+    is_system: boolean;
+    members_count: string;
+  }>(
+    `SELECT r.id, r.key, r.name, r.description, r.permissions, r.is_system,
+            (SELECT count(*) FROM tenant_memberships tm WHERE tm.role_id = r.id) AS members_count
+       FROM tenant_roles r
+      WHERE r.tenant_id = $1
+      ORDER BY CASE r.key WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'operator' THEN 2 WHEN 'financial' THEN 3 ELSE 4 END, r.name ASC`,
+    [tenantId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    key: r.key,
+    name: r.name,
+    description: r.description,
+    permissions: r.permissions ?? {},
+    isSystem: r.is_system,
+    membersCount: Number(r.members_count),
+  }));
+}
+
+export async function listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
+  const { rows } = await getPool().query<{
+    membership_id: string;
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    is_master: boolean;
+    totp_configured_at: string | null;
+    role_id: string;
+    role_key: string;
+    role_name: string;
+    other_companies_count: string;
+    created_at: string;
+  }>(
+    `SELECT tm.id AS membership_id, u.id AS user_id, u.name AS user_name, u.email AS user_email,
+            u.is_master, u.totp_configured_at,
+            tr.id AS role_id, tr.key AS role_key, tr.name AS role_name,
+            (SELECT count(*) FROM tenant_memberships tm2 WHERE tm2.user_id = u.id AND tm2.tenant_id <> $1) AS other_companies_count,
+            to_char(tm.created_at, 'DD/MM/YYYY') AS created_at
+       FROM tenant_memberships tm
+       JOIN users u ON u.id = tm.user_id
+       JOIN tenant_roles tr ON tr.id = tm.role_id
+      WHERE tm.tenant_id = $1
+      ORDER BY CASE WHEN tr.key = 'owner' THEN 0 ELSE 1 END, u.name ASC`,
+    [tenantId],
+  );
+  return rows.map((r) => ({
+    membershipId: r.membership_id,
+    userId: r.user_id,
+    userName: r.user_name,
+    userEmail: r.user_email,
+    isMaster: r.is_master,
+    totpConfigured: Boolean(r.totp_configured_at),
+    roleId: r.role_id,
+    roleKey: r.role_key,
+    roleName: r.role_name,
+    otherCompaniesCount: Number(r.other_companies_count),
+    createdAt: r.created_at,
   }));
 }
 
