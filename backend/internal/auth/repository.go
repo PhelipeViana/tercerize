@@ -16,11 +16,12 @@ import (
 )
 
 type User struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Email           string `json:"email"`
-	IsMaster        bool   `json:"isMaster"`
-	TOTPConfigured  bool   `json:"totpConfigured"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Email          string `json:"email"`
+	IsMaster       bool   `json:"isMaster"`
+	Blocked        bool   `json:"blocked"`
+	TOTPConfigured bool   `json:"totpConfigured"`
 }
 
 type Tenant struct {
@@ -63,19 +64,19 @@ func (s *SessionContext) HasPermission(perm string) bool {
 }
 
 var AllPermissionsTrue = map[string]bool{
-	"contracts:view":      true,
-	"contracts:write":     true,
-	"service_orders:view": true,
+	"contracts:view":       true,
+	"contracts:write":      true,
+	"service_orders:view":  true,
 	"service_orders:write": true,
-	"employees:view":      true,
-	"employees:write":     true,
-	"epis:view":           true,
-	"epis:write":          true,
-	"inventory:view":      true,
-	"inventory:write":     true,
-	"finance:view":        true,
-	"finance:write":       true,
-	"access:manage":       true,
+	"employees:view":       true,
+	"employees:write":      true,
+	"epis:view":            true,
+	"epis:write":           true,
+	"inventory:view":       true,
+	"inventory:write":      true,
+	"finance:view":         true,
+	"finance:write":        true,
+	"access:manage":        true,
 }
 
 var ErrInvalidSetupLink = errors.New("link de ativação inválido ou expirado")
@@ -93,23 +94,23 @@ type LoginUser struct {
 	Name       string
 	Email      string
 	IsMaster   bool
+	Blocked    bool
 	TOTPSecret string
 }
 
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*LoginUser, error) {
 	var u LoginUser
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, name, email, is_master, totp_secret
+		`SELECT id, name, email, is_master, COALESCE(blocked, false), totp_secret
 		   FROM users
 		  WHERE lower(email) = lower($1)`, email).
-		Scan(&u.ID, &u.Name, &u.Email, &u.IsMaster, &u.TOTPSecret)
+		Scan(&u.ID, &u.Name, &u.Email, &u.IsMaster, &u.Blocked, &u.TOTPSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	// Guarantee a TOTP secret exists even for migrated users
 	if strings.TrimSpace(u.TOTPSecret) == "" {
 		secret, genErr := totp.GenerateSecret()
 		if genErr != nil {
@@ -121,6 +122,27 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*LoginU
 		u.TOTPSecret = secret
 	}
 	return &u, nil
+}
+
+// FindLinkedCompanyByCNPJ checks if the user is linked (via tenant_memberships or owner_user_id) to an active company with the given formatted CNPJ.
+func (r *Repository) FindLinkedCompanyByCNPJ(ctx context.Context, userID, formattedCNPJ string) (tenantID string, companyName string, roleName string, ok bool, err error) {
+	err = r.pool.QueryRow(ctx,
+		`SELECT t.id, t.name, COALESCE(tr.name, 'Vinculado')
+		   FROM tenants t
+		   LEFT JOIN tenant_memberships tm ON tm.tenant_id = t.id AND tm.user_id = $1
+		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
+		  WHERE t.cnpj = $2
+		    AND t.active = true
+		    AND (tm.user_id IS NOT NULL OR t.owner_user_id = $1)
+		  LIMIT 1`,
+		userID, formattedCNPJ).Scan(&tenantID, &companyName, &roleName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", "", false, nil
+	}
+	if err != nil {
+		return "", "", "", false, err
+	}
+	return tenantID, companyName, roleName, true, nil
 }
 
 // EnsureUserWithTOTP finds an existing user by email or creates one with a generated Base32 TOTP secret.
@@ -196,6 +218,7 @@ type SetupLinkInfo struct {
 	UserName    string
 	UserEmail   string
 	IsMaster    bool
+	Blocked     bool
 	TOTPSecret  string
 	TenantID    string
 	CompanyName string
@@ -209,7 +232,7 @@ func (r *Repository) LookupSetupLink(ctx context.Context, rawToken string) (*Set
 	var info SetupLinkInfo
 	var tenantID, companyName, roleName *string
 	err := r.pool.QueryRow(ctx,
-		`SELECT l.id, u.id, u.name, u.email, u.is_master, u.totp_secret,
+		`SELECT l.id, u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_secret,
 		        l.tenant_id::text, t.name, tr.name
 		   FROM auth_setup_links l
 		   JOIN users u ON u.id = l.user_id
@@ -220,7 +243,7 @@ func (r *Repository) LookupSetupLink(ctx context.Context, rawToken string) (*Set
 		    AND l.used_at IS NULL
 		    AND l.expires_at > now()`,
 		hashToken(strings.TrimSpace(rawToken))).
-		Scan(&info.LinkID, &info.UserID, &info.UserName, &info.UserEmail, &info.IsMaster, &info.TOTPSecret,
+		Scan(&info.LinkID, &info.UserID, &info.UserName, &info.UserEmail, &info.IsMaster, &info.Blocked, &info.TOTPSecret,
 			&tenantID, &companyName, &roleName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrInvalidSetupLink
@@ -337,7 +360,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 	var permsRaw []byte
 
 	err := r.pool.QueryRow(ctx,
-		`SELECT u.id, u.name, u.email, u.is_master, u.totp_configured_at,
+		`SELECT u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_configured_at,
 		        t.id, t.name, t.cnpj, t.owner_name, t.owner_email, t.active,
 		        tr.id::text, tr.key, tr.name, tr.permissions
 		   FROM sessions s
@@ -347,7 +370,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
 		  WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).
 		Scan(
-			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &totpConfiguredAt,
+			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &s.User.Blocked, &totpConfiguredAt,
 			&s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.OwnerName, &s.Tenant.OwnerEmail, &s.Tenant.Active,
 			&roleID, &roleKey, &roleName, &permsRaw,
 		)
@@ -356,6 +379,12 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 	}
 	if err != nil {
 		return nil, err
+	}
+	if s.User.Blocked {
+		return nil, nil
+	}
+	if !s.User.IsMaster && !s.Tenant.Active {
+		return nil, nil
 	}
 	s.User.TOTPConfigured = totpConfiguredAt != nil
 
@@ -369,7 +398,6 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		return &s, nil
 	}
 
-	// Non-master user MUST still have a valid membership in the active tenant
 	if roleID == nil || roleKey == nil || roleName == nil {
 		return nil, nil
 	}

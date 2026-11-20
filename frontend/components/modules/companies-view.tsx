@@ -5,15 +5,21 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  Ban,
   Building2,
   CheckCircle2,
   Loader2,
   Mail,
   Plus,
   Search,
+  Unlock,
   UserCheck,
 } from "lucide-react";
-import { createCompanyStateAction, switchTenantAction } from "@/app/actions/auth";
+import {
+  createCompanyStateAction,
+  switchTenantAction,
+  toggleTenantActiveAction,
+} from "@/app/actions/auth";
 import type { CompanyRow } from "@/lib/operations/repository";
 import { formatCNPJ } from "@/lib/utils/cnpj";
 
@@ -124,6 +130,12 @@ export function CompaniesView({
                   <div className="min-w-0 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p>
+                      {!c.active && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 dark:bg-rose-950/80 px-3 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                          <span className="size-1.5 rounded-full bg-rose-600" aria-hidden="true" />
+                          Bloqueada
+                        </span>
+                      )}
                       {isCurrent && (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-3 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                           <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
@@ -155,7 +167,36 @@ export function CompaniesView({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <form action={toggleTenantActiveAction}>
+                      <input type="hidden" name="tenantId" value={c.id} />
+                      <button
+                        type="submit"
+                        title={
+                          c.active
+                            ? "Bloquear empresa e deslogar todos os usuários não-Master vinculados"
+                            : "Reativar acesso desta empresa"
+                        }
+                        className={`min-h-9 inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                          c.active
+                            ? "border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100"
+                            : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {c.active ? (
+                          <>
+                            <Ban className="size-3.5" aria-hidden="true" />
+                            <span>Bloquear empresa</span>
+                          </>
+                        ) : (
+                          <>
+                            <Unlock className="size-3.5" aria-hidden="true" />
+                            <span>Reativar</span>
+                          </>
+                        )}
+                      </button>
+                    </form>
+
                     {!isCurrent && (
                       <form action={switchTenantAction}>
                         <input type="hidden" name="tenantId" value={c.id} />

@@ -53,6 +53,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
     user_name: string;
     user_email: string;
     is_master: boolean;
+    user_blocked: boolean;
     totp_configured_at: string | null;
     tenant_id: string;
     tenant_name: string;
@@ -66,7 +67,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
     role_permissions: Record<string, boolean> | null;
   }>(
     `SELECT u.id AS user_id, u.name AS user_name, u.email AS user_email,
-            u.is_master, u.totp_configured_at,
+            u.is_master, COALESCE(u.blocked, false) AS user_blocked, u.totp_configured_at,
             t.id AS tenant_id, t.name AS tenant_name, t.cnpj AS tenant_cnpj,
             COALESCE(t.owner_name, '') AS owner_name,
             COALESCE(t.owner_email, '') AS owner_email,
@@ -83,27 +84,31 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
   );
   const row = rows[0];
   if (!row) return null;
+  // Desloga imediatamente se o usuário ou a empresa ativa (para não-Master) for bloqueado
+  if (row.user_blocked || (!row.is_master && !row.tenant_active)) {
+    return null;
+  }
 
   const role: SessionRole = row.is_master
     ? {
-        id: "master",
-        key: "master",
-        name: "Master",
-        permissions: ALL_PERMISSIONS_TRUE,
-      }
+      id: "master",
+      key: "master",
+      name: "Master",
+      permissions: ALL_PERMISSIONS_TRUE,
+    }
     : row.role_id && row.role_key && row.role_name
       ? {
-          id: row.role_id,
-          key: row.role_key,
-          name: row.role_name,
-          permissions: row.role_permissions ?? {},
-        }
+        id: row.role_id,
+        key: row.role_key,
+        name: row.role_name,
+        permissions: row.role_permissions ?? {},
+      }
       : {
-          id: "",
-          key: "",
-          name: "",
-          permissions: {},
-        };
+        id: "",
+        key: "",
+        name: "",
+        permissions: {},
+      };
 
   if (!row.is_master && !role.id) {
     return null;

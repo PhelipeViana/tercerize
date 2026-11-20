@@ -31,9 +31,14 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 	})
 
 	r.Route("/api", func(r chi.Router) {
-		// Autenticação exclusiva via E-mail + Google Authenticator (TOTP) e link enviado por e-mail
+		// Login em 2 etapas: 1) Validar e-mail -> 2) Validar senha do Google Authenticator
+		r.Post("/auth/check-email", authHandlers.CheckLoginEmail)
 		r.Post("/auth/login", authHandlers.Login)
 		r.Post("/auth/logout", authHandlers.Logout)
+
+		// Recuperação de Autenticação em 2 etapas (exige CNPJ vinculado para não-Master)
+		r.Post("/auth/recovery/check-email", authHandlers.RecoveryCheckEmail)
+		r.Post("/auth/recovery/send-link", authHandlers.RecoverySendLink)
 		r.Post("/auth/request-link", authHandlers.RequestSetupLink)
 		r.Get("/auth/setup-link", authHandlers.GetSetupLink)
 		r.Post("/auth/setup-link/verify", authHandlers.CompleteSetupLink)
@@ -42,9 +47,10 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Use(authHandlers.Require)
 			r.Get("/me", authHandlers.Me)
 
-			// Multi-Empresas (troca para Master ou usuários vinculados a múltiplas empresas; criação exclusiva Master)
+			// Multi-Empresas
 			r.Post("/tenants/switch", authHandlers.SwitchTenant)
 			r.Post("/tenants", opHandlers.CreateCompany)
+			r.Post("/tenants/toggle-active", opHandlers.ToggleTenantActive)
 
 			// Roles e Permissões (exclusivo Dono da empresa ativa ou Master)
 			r.Post("/rbac/roles", opHandlers.CreateOrUpdateRole)
@@ -53,8 +59,9 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/rbac/members/role", opHandlers.UpdateMemberRole)
 			r.Post("/rbac/members/remove", opHandlers.RemoveMember)
 			r.Post("/rbac/members/resend-link", opHandlers.ResendMemberLink)
+			r.Post("/rbac/members/block", opHandlers.ToggleUserBlock)
 
-			// 6 Módulos Operacionais (com validação de permissão por módulo)
+			// 6 Módulos Operacionais
 			r.Post("/clients", opHandlers.CreateClient)
 			r.Post("/contracts", opHandlers.CreateContract)
 			r.Post("/employees", opHandlers.CreateEmployee)

@@ -59,3 +59,7 @@
   - Autenticação estrita via E-mail + Google Authenticator (RFC 6238 TOTP) sem exceções.
   - Envio automático de link de ativação por e-mail (sem QR Code) via SMTP SSL (`MAIL_*` no `.env`) ao cadastrar empresa ou conceder subpermissão.
   - Acesso Master para `phelipegabriel1988@gmail.com`, propriedade de empresa (`owner_name`, `owner_email`, `CNPJ` único), vínculos N:N em `tenant_memberships` com trava `UNIQUE (tenant_id, user_id)` e módulo `/admin/permissions` exclusivo para Dono ou Master.
+- **[2026-11-21] SDD-006 — Login em 2 Etapas, Recuperação de Autenticação com Validação de CNPJ e Deslogue Imediato por Bloqueio (`0005_user_block_and_recovery.sql`):**
+  - Login em 2 etapas (`/login`): Etapa 1 (`POST /api/auth/check-email`) valida o e-mail e status de bloqueio; Etapa 2 (`POST /api/auth/login`) valida o código de 6 dígitos do Google Authenticator.
+  - Página dedicada de Recuperação de Autenticação (`/recuperar-autenticador`): Etapa 1 (`POST /api/auth/recovery/check-email`) valida e-mail e bloqueio; Etapa 2 (`POST /api/auth/recovery/send-link`) exige a confirmação do CNPJ de qualquer empresa vinculada para e-mails não-Master antes do envio do link de recuperação.
+  - Bloqueio com revogação imediata de sessão: bloquear um usuário (`POST /api/rbac/members/block`) ou bloquear/desativar uma empresa (`POST /api/tenants/toggle-active`) executa `DELETE FROM sessions` e rejeita imediatamente qualquer sessão ativa no backend Go e no middleware/DAL Next.js.

@@ -590,6 +590,122 @@ func (h *Handlers) ResendMemberLink(w http.ResponseWriter, r *http.Request) {
 	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "message": "Link de ativação enviado para " + uEmail})
 }
 
+// ToggleTenantActive: POST /api/tenants/toggle-active (exclusivo Master)
+// Ao bloquear uma empresa (active = false), desloga imediatamente todos os usuários não-Master conectados a ela.
+func (h *Handlers) ToggleTenantActive(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas acesso Master pode bloquear ou reativar empresas.")
+		return
+	}
+	var in struct {
+		TenantID string `json:"tenantId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.TenantID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Informe a empresa.")
+		return
+	}
+	targetID := strings.TrimSpace(in.TenantID)
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro interno.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var newActive bool
+	err = tx.QueryRow(r.Context(),
+		`UPDATE tenants SET active = NOT active WHERE id = $1 RETURNING active`,
+		targetID).Scan(&newActive)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Empresa não encontrada.")
+		return
+	}
+	if !newActive {
+		// Desloga imediatamente todos os usuários não-Master que estejam na empresa bloqueada
+		_, _ = tx.Exec(r.Context(),
+			`DELETE FROM sessions
+			 WHERE active_tenant_id = $1
+			   AND user_id IN (SELECT id FROM users WHERE is_master = false)`,
+			targetID)
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao atualizar status da empresa.")
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "active": newActive})
+}
+
+// ToggleUserBlock: POST /api/rbac/members/block (Master ou Dono da empresa ativa)
+// Ao bloquear um usuário (inclusive um Dono, quando acionado pelo Master), revoga imediatamente todas as sessões e links ativos.
+func (h *Handlers) ToggleUserBlock(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.CanManageAccess() {
+		httpx.Message(w, http.StatusForbidden, "Apenas o Dono da empresa ou acesso Master pode bloquear usuários.")
+		return
+	}
+	var in struct {
+		UserID string `json:"userId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.UserID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Informe o usuário.")
+		return
+	}
+	targetUserID := strings.TrimSpace(in.UserID)
+	if targetUserID == sess.User.ID {
+		httpx.Message(w, http.StatusBadRequest, "Você não pode bloquear o próprio acesso.")
+		return
+	}
+
+	var targetIsMaster bool
+	var targetRoleKey string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT u.is_master, tr.key
+		   FROM tenant_memberships tm
+		   JOIN users u ON u.id = tm.user_id
+		   JOIN tenant_roles tr ON tr.id = tm.role_id
+		  WHERE tm.tenant_id = $1 AND tm.user_id = $2`,
+		sess.Tenant.ID, targetUserID).Scan(&targetIsMaster, &targetRoleKey)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Usuário não encontrado nesta empresa.")
+		return
+	}
+	if targetIsMaster {
+		httpx.Message(w, http.StatusForbidden, "Um acesso Master não pode ser bloqueado.")
+		return
+	}
+	if targetRoleKey == "owner" && !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas um usuário Master pode bloquear o Dono da empresa.")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro interno.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var nowBlocked bool
+	err = tx.QueryRow(r.Context(),
+		`UPDATE users SET blocked = NOT COALESCE(blocked, false) WHERE id = $1 RETURNING blocked`,
+		targetUserID).Scan(&nowBlocked)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao alterar bloqueio do usuário.")
+		return
+	}
+	if nowBlocked {
+		// Revogação imediata: encerra todas as sessões ativas e invalida links pendentes do usuário bloqueado
+		_, _ = tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id = $1`, targetUserID)
+		_, _ = tx.Exec(r.Context(), `DELETE FROM auth_setup_links WHERE user_id = $1`, targetUserID)
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao salvar bloqueio.")
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "blocked": nowBlocked})
+}
+
 // CreateClient: POST /api/clients
 func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())

@@ -32,6 +32,7 @@ export interface TenantMemberRow {
   userName: string;
   userEmail: string;
   isMaster: boolean;
+  blocked: boolean;
   totpConfigured: boolean;
   roleId: string;
   roleKey: string;
@@ -273,6 +274,7 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
     user_name: string;
     user_email: string;
     is_master: boolean;
+    blocked: boolean;
     totp_configured_at: string | null;
     role_id: string;
     role_key: string;
@@ -281,7 +283,7 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
     created_at: string;
   }>(
     `SELECT tm.id AS membership_id, u.id AS user_id, u.name AS user_name, u.email AS user_email,
-            u.is_master, u.totp_configured_at,
+            u.is_master, COALESCE(u.blocked, false) AS blocked, u.totp_configured_at,
             tr.id AS role_id, tr.key AS role_key, tr.name AS role_name,
             (SELECT count(*) FROM tenant_memberships tm2 WHERE tm2.user_id = u.id AND tm2.tenant_id <> $1) AS other_companies_count,
             to_char(tm.created_at, 'DD/MM/YYYY') AS created_at
@@ -298,6 +300,7 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
     userName: r.user_name,
     userEmail: r.user_email,
     isMaster: r.is_master,
+    blocked: r.blocked,
     totpConfigured: Boolean(r.totp_configured_at),
     roleId: r.role_id,
     roleKey: r.role_key,

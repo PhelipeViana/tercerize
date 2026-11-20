@@ -6,21 +6,29 @@ import { apiFetch } from "@/lib/api/server";
 import { clearSessionCookie, setSessionCookie } from "@/lib/auth/session";
 import { validateCNPJ } from "@/lib/utils/cnpj";
 
-export type AuthFormState =
+export type LoginStepState =
   | {
+      step: "email" | "code";
+      email?: string;
+      userName?: string;
+      isMaster?: boolean;
       errors?: Partial<Record<"email" | "code", string[]>>;
       message?: string;
-      successMessage?: string;
-      values?: { email?: string };
     }
   | undefined;
 
-export type RequestLinkState =
+export type RecoveryStepState =
   | {
-      ok?: boolean;
-      message?: string;
-      error?: string;
+      step: "email" | "confirm" | "sent";
       email?: string;
+      userName?: string;
+      isMaster?: boolean;
+      requiresCnpj?: boolean;
+      cnpj?: string;
+      companyName?: string;
+      errors?: Partial<Record<"email" | "cnpj", string[]>>;
+      message?: string;
+      successMessage?: string;
     }
   | undefined;
 
@@ -61,23 +69,84 @@ interface Entered {
 const OFFLINE = "O servidor não respondeu. Tente de novo em instantes.";
 const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? value : "");
 
-export async function login(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
+// Login em 2 etapas: Etapa 1 valida o e-mail; Etapa 2 valida o código do Google Authenticator
+export async function loginTwoStepAction(
+  prevState: LoginStepState,
+  formData: FormData,
+): Promise<LoginStepState> {
+  const intent = text(formData.get("intent")) || "check-email";
   const email = text(formData.get("email")).trim();
-  const code = text(formData.get("code")).trim();
 
+  if (intent === "reset") {
+    return { step: "email", email: "" };
+  }
+
+  if (intent === "check-email") {
+    let response: Response;
+    let data: {
+      ok?: boolean;
+      email?: string;
+      name?: string;
+      isMaster?: boolean;
+      errors?: Partial<Record<"email" | "code", string[]>>;
+      message?: string;
+    };
+    try {
+      response = await apiFetch("/api/auth/check-email", { method: "POST", body: { email } });
+      data = (await response.json().catch(() => ({}))) as typeof data;
+    } catch {
+      return { step: "email", email, message: OFFLINE };
+    }
+
+    if (!response.ok || !data.ok) {
+      return {
+        step: "email",
+        email,
+        errors: data.errors,
+        message: data.errors ? undefined : (data.message ?? OFFLINE),
+      };
+    }
+
+    return {
+      step: "code",
+      email: data.email ?? email,
+      userName: data.name,
+      isMaster: data.isMaster,
+    };
+  }
+
+  // Etapa 2: validar código TOTP do Google Authenticator
+  const code = text(formData.get("code")).trim();
+  const confirmedEmail = email || prevState?.email || "";
   let response: Response;
-  let data: Partial<Entered> & { errors?: NonNullable<AuthFormState>["errors"]; message?: string };
+  let data: Partial<Entered> & {
+    errors?: Partial<Record<"email" | "code", string[]>>;
+    message?: string;
+  };
   try {
-    response = await apiFetch("/api/auth/login", { method: "POST", body: { email, code } });
+    response = await apiFetch("/api/auth/login", {
+      method: "POST",
+      body: { email: confirmedEmail, code },
+    });
     data = (await response.json().catch(() => ({}))) as typeof data;
   } catch {
-    return { message: OFFLINE, values: { email } };
+    return {
+      step: "code",
+      email: confirmedEmail,
+      userName: prevState?.userName,
+      isMaster: prevState?.isMaster,
+      message: OFFLINE,
+    };
   }
+
   if (!response.ok || !data.session) {
     return {
+      step: "code",
+      email: confirmedEmail,
+      userName: prevState?.userName,
+      isMaster: prevState?.isMaster,
       errors: data.errors,
       message: data.errors ? undefined : (data.message ?? OFFLINE),
-      values: { email },
     };
   }
 
@@ -85,31 +154,129 @@ export async function login(_state: AuthFormState, formData: FormData): Promise<
   redirect("/admin/contracts");
 }
 
-export async function requestSetupLinkAction(
-  _state: RequestLinkState,
+// Recuperação de Autenticação em 2 etapas:
+// Etapa 1 valida e-mail (e se não está bloqueado);
+// Etapa 2 envia o link (exigindo CNPJ de qualquer empresa vinculada quando o e-mail não for Master)
+export async function recoverAuthenticatorStepAction(
+  prevState: RecoveryStepState,
   formData: FormData,
-): Promise<RequestLinkState> {
+): Promise<RecoveryStepState> {
+  const intent = text(formData.get("intent")) || "check-email";
   const email = text(formData.get("email")).trim();
-  if (!email) {
-    return { error: "Informe o e-mail corporativo para receber o link de configuração.", email };
+
+  if (intent === "reset") {
+    return { step: "email", email: "" };
   }
-  try {
-    const res = await apiFetch("/api/auth/request-link", { method: "POST", body: { email } });
-    const data = (await res.json().catch(() => ({}))) as {
+
+  if (intent === "check-email") {
+    let response: Response;
+    let data: {
       ok?: boolean;
+      email?: string;
+      name?: string;
+      isMaster?: boolean;
+      requiresCnpj?: boolean;
+      errors?: Partial<Record<"email" | "cnpj", string[]>>;
       message?: string;
-      errors?: { email?: string[] };
     };
-    if (!res.ok) {
+    try {
+      response = await apiFetch("/api/auth/recovery/check-email", {
+        method: "POST",
+        body: { email },
+      });
+      data = (await response.json().catch(() => ({}))) as typeof data;
+    } catch {
+      return { step: "email", email, message: OFFLINE };
+    }
+
+    if (!response.ok || !data.ok) {
       return {
-        error: data.errors?.email?.[0] ?? data.message ?? "Não foi possível enviar o link agora.",
+        step: "email",
         email,
+        errors: data.errors,
+        message: data.errors ? undefined : (data.message ?? OFFLINE),
       };
     }
-    return { ok: true, message: data.message, email };
-  } catch {
-    return { error: OFFLINE, email };
+
+    return {
+      step: "confirm",
+      email: data.email ?? email,
+      userName: data.name,
+      isMaster: Boolean(data.isMaster),
+      requiresCnpj: Boolean(data.requiresCnpj),
+    };
   }
+
+  // Etapa 2: Validar CNPJ (se não-Master) e enviar link de recuperação por e-mail
+  const confirmedEmail = email || prevState?.email || "";
+  const rawCnpj = text(formData.get("cnpj")).trim();
+  const requiresCnpj = Boolean(prevState?.requiresCnpj);
+
+  let cnpjToSend = "";
+  if (requiresCnpj) {
+    const cnpjCheck = validateCNPJ(rawCnpj);
+    if (!cnpjCheck.valid) {
+      return {
+        step: "confirm",
+        email: confirmedEmail,
+        userName: prevState?.userName,
+        isMaster: prevState?.isMaster,
+        requiresCnpj: true,
+        cnpj: cnpjCheck.formatted,
+        errors: { cnpj: [cnpjCheck.error ?? "Informe um CNPJ válido."] },
+      };
+    }
+    cnpjToSend = cnpjCheck.formatted;
+  }
+
+  let response: Response;
+  let data: {
+    ok?: boolean;
+    email?: string;
+    companyName?: string;
+    message?: string;
+    errors?: Partial<Record<"email" | "cnpj", string[]>>;
+  };
+  try {
+    response = await apiFetch("/api/auth/recovery/send-link", {
+      method: "POST",
+      body: { email: confirmedEmail, cnpj: cnpjToSend },
+    });
+    data = (await response.json().catch(() => ({}))) as typeof data;
+  } catch {
+    return {
+      step: "confirm",
+      email: confirmedEmail,
+      userName: prevState?.userName,
+      isMaster: prevState?.isMaster,
+      requiresCnpj,
+      cnpj: rawCnpj,
+      message: OFFLINE,
+    };
+  }
+
+  if (!response.ok || !data.ok) {
+    return {
+      step: "confirm",
+      email: confirmedEmail,
+      userName: prevState?.userName,
+      isMaster: prevState?.isMaster,
+      requiresCnpj,
+      cnpj: cnpjToSend || rawCnpj,
+      errors: data.errors,
+      message: data.errors ? undefined : (data.message ?? OFFLINE),
+    };
+  }
+
+  return {
+    step: "sent",
+    email: data.email ?? confirmedEmail,
+    userName: prevState?.userName,
+    companyName: data.companyName,
+    successMessage:
+      data.message ??
+      `Link de recuperação do Google Authenticator enviado para ${confirmedEmail}.`,
+  };
 }
 
 export async function completeSetupLinkAction(
@@ -366,5 +533,19 @@ export async function deleteRoleAction(formData: FormData): Promise<void> {
   const id = text(formData.get("id")).trim();
   if (!id) return;
   await apiFetch("/api/rbac/roles/delete", { method: "POST", body: { id } });
+  revalidatePath("/admin/permissions");
+}
+
+export async function toggleTenantActiveAction(formData: FormData): Promise<void> {
+  const tenantId = text(formData.get("tenantId")).trim();
+  if (!tenantId) return;
+  await apiFetch("/api/tenants/toggle-active", { method: "POST", body: { tenantId } });
+  revalidatePath("/", "layout");
+}
+
+export async function toggleUserBlockAction(formData: FormData): Promise<void> {
+  const userId = text(formData.get("userId")).trim();
+  if (!userId) return;
+  await apiFetch("/api/rbac/members/block", { method: "POST", body: { userId } });
   revalidatePath("/admin/permissions");
 }

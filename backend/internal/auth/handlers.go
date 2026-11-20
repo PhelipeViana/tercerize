@@ -55,7 +55,63 @@ const (
 	msgBadRequest  = "Pedido inválido."
 )
 
-// Login authenticates exclusively via Email + Google Authenticator 6-digit TOTP code. No exceptions.
+// CheckLoginEmail (Etapa 1 do Login): valida se o e-mail existe, não está bloqueado e possui acesso ativo.
+func (h *Handlers) CheckLoginEmail(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+		return
+	}
+	email, msg := NormalizeEmail(in.Email)
+	if msg != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": FieldErrors{"email": {msg}}})
+		return
+	}
+
+	ctx := r.Context()
+	key := clientIP(r) + "|" + email
+	if blocked, err := h.limiter.IsBlocked(ctx, key); err == nil && blocked {
+		httpx.Message(w, http.StatusTooManyRequests, "Acesso temporariamente bloqueado por excesso de tentativas. Aguarde alguns minutos.")
+		return
+	}
+
+	user, err := h.repo.FindUserByEmail(ctx, email)
+	if err != nil {
+		h.fail(w, "validar e-mail no login", err)
+		return
+	}
+	if user == nil {
+		httpx.Write(w, http.StatusNotFound, map[string]any{
+			"errors": FieldErrors{"email": {"Este e-mail não está cadastrado na plataforma."}},
+		})
+		return
+	}
+	if user.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado. Procure o administrador Master ou o Dono da empresa.")
+		return
+	}
+
+	tenantID, err := h.repo.FindDefaultTenantForUser(ctx, user.ID, user.IsMaster)
+	if err != nil {
+		h.fail(w, "verificar empresa ativa do e-mail", err)
+		return
+	}
+	if tenantID == "" {
+		httpx.Message(w, http.StatusForbidden, "Este e-mail não está vinculado a nenhuma empresa ativa.")
+		return
+	}
+
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"email":    user.Email,
+		"name":     user.Name,
+		"isMaster": user.IsMaster,
+	})
+}
+
+// Login (Etapa 2 do Login): autentica exclusivamente via Email + Código de 6 dígitos do Google Authenticator.
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var in LoginInput
 	if err := httpx.Read(r, &in); err != nil {
@@ -84,6 +140,10 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "buscar usuário", err)
 		return
 	}
+	if user != nil && user.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado.")
+		return
+	}
 
 	valid := false
 	if user != nil && user.TOTPSecret != "" {
@@ -93,7 +153,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		if err := h.limiter.RecordFailure(ctx, key); err != nil {
 			h.log.Error("limite de login indisponível", "err", err)
 		}
-		httpx.Message(w, http.StatusUnauthorized, "E-mail ou código do Google Authenticator inválido.")
+		httpx.Message(w, http.StatusUnauthorized, "Código do Google Authenticator inválido ou expirado.")
 		return
 	}
 
@@ -114,8 +174,9 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	h.enter(w, r, user.ID, tenantID, http.StatusOK)
 }
 
-// RequestSetupLink sends an email with the activation link (no QR code) for Google Authenticator configuration.
-func (h *Handlers) RequestSetupLink(w http.ResponseWriter, r *http.Request) {
+// RecoveryCheckEmail (Etapa 1 da Recuperação de Autenticação):
+// Valida e-mail e bloqueio; se não for Master, informa que será necessário confirmar o CNPJ de alguma empresa vinculada.
+func (h *Handlers) RecoveryCheckEmail(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email string `json:"email"`
 	}
@@ -130,42 +191,140 @@ func (h *Handlers) RequestSetupLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	user, err := h.repo.FindUserByEmail(ctx, email)
-	if err != nil {
-		h.fail(w, "buscar e-mail para link do autenticador", err)
-		return
-	}
-	if user == nil {
-		// Generic response to avoid account enumeration
-		httpx.Write(w, http.StatusOK, map[string]any{
-			"ok":      true,
-			"message": "Se o e-mail estiver cadastrado na plataforma, enviamos o link de configuração do Google Authenticator para sua caixa de entrada.",
-		})
+	key := clientIP(r) + "|" + email
+	if rateBlocked, err := h.limiter.IsBlocked(ctx, key); err == nil && rateBlocked {
+		httpx.Message(w, http.StatusTooManyRequests, "Acesso temporariamente bloqueado por excesso de tentativas. Aguarde alguns minutos.")
 		return
 	}
 
-	tenantID, _ := h.repo.FindDefaultTenantForUser(ctx, user.ID, user.IsMaster)
+	user, err := h.repo.FindUserByEmail(ctx, email)
+	if err != nil {
+		h.fail(w, "validar e-mail na recuperação", err)
+		return
+	}
+	if user == nil {
+		httpx.Write(w, http.StatusNotFound, map[string]any{
+			"errors": FieldErrors{"email": {"Não encontramos uma conta cadastrada com este e-mail."}},
+		})
+		return
+	}
+	if user.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado e não pode solicitar recuperação de autenticação.")
+		return
+	}
+
+	if !user.IsMaster {
+		tenantID, err := h.repo.FindDefaultTenantForUser(ctx, user.ID, false)
+		if err != nil {
+			h.fail(w, "verificar vínculo de empresa na recuperação", err)
+			return
+		}
+		if tenantID == "" {
+			httpx.Message(w, http.StatusForbidden, "Este e-mail não está vinculado a nenhuma empresa ativa.")
+			return
+		}
+	}
+
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"email":        user.Email,
+		"name":         user.Name,
+		"isMaster":     user.IsMaster,
+		"requiresCnpj": !user.IsMaster,
+	})
+}
+
+// RecoverySendLink (Etapa 2 da Recuperação de Autenticação):
+// Se não for Master e o acesso não estiver bloqueado, exige e valida o CNPJ de qualquer empresa vinculada antes de enviar o link.
+func (h *Handlers) RecoverySendLink(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+		CNPJ  string `json:"cnpj"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+		return
+	}
+	email, msg := NormalizeEmail(in.Email)
+	if msg != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": FieldErrors{"email": {msg}}})
+		return
+	}
+
+	ctx := r.Context()
+	key := clientIP(r) + "|" + email
+	if rateBlocked, err := h.limiter.IsBlocked(ctx, key); err == nil && rateBlocked {
+		httpx.Message(w, http.StatusTooManyRequests, "Acesso temporariamente bloqueado por excesso de tentativas.")
+		return
+	}
+
+	user, err := h.repo.FindUserByEmail(ctx, email)
+	if err != nil {
+		h.fail(w, "buscar usuário para recuperação", err)
+		return
+	}
+	if user == nil {
+		httpx.Message(w, http.StatusNotFound, "Não encontramos uma conta cadastrada com este e-mail.")
+		return
+	}
+	if user.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado.")
+		return
+	}
+
+	var tenantID, companyName, roleLabel string
+	if user.IsMaster {
+		tenantID, _ = h.repo.FindDefaultTenantForUser(ctx, user.ID, true)
+		roleLabel = "Acesso Master"
+	} else {
+		formattedCNPJ, cnpjErr := ValidateCNPJ(in.CNPJ)
+		if cnpjErr != "" {
+			httpx.Write(w, http.StatusBadRequest, map[string]any{
+				"errors": FieldErrors{"cnpj": {cnpjErr}},
+			})
+			return
+		}
+		var ok bool
+		tenantID, companyName, roleLabel, ok, err = h.repo.FindLinkedCompanyByCNPJ(ctx, user.ID, formattedCNPJ)
+		if err != nil {
+			h.fail(w, "validar CNPJ vinculado na recuperação", err)
+			return
+		}
+		if !ok {
+			if err := h.limiter.RecordFailure(ctx, key); err != nil {
+				h.log.Error("limite de recuperação indisponível", "err", err)
+			}
+			httpx.Write(w, http.StatusForbidden, map[string]any{
+				"errors": FieldErrors{"cnpj": {"O CNPJ informado não corresponde a nenhuma empresa ativa vinculada a este e-mail."}},
+			})
+			return
+		}
+	}
+
 	rawToken, err := h.repo.CreateSetupLink(ctx, user.ID, tenantID)
 	if err != nil {
-		h.fail(w, "criar link de ativação", err)
+		h.fail(w, "gerar link de recuperação do autenticador", err)
 		return
 	}
 
 	activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
-	roleLabel := "Acesso Corporativo"
-	if user.IsMaster {
-		roleLabel = "Acesso Master"
-	}
-	if err := h.mailer.SendAuthenticatorLink(user.Email, user.Name, "", roleLabel, activationURL); err != nil {
-		h.log.Error("enviar e-mail do autenticador", "to", user.Email, "err", err)
-		httpx.Message(w, http.StatusBadGateway, "Não foi possível enviar o e-mail no momento. Verifique as credenciais SMTP no .env.")
+	if err := h.mailer.SendAuthenticatorLink(user.Email, user.Name, companyName, roleLabel, activationURL); err != nil {
+		h.log.Error("enviar e-mail de recuperação do autenticador", "to", user.Email, "err", err)
+		httpx.Message(w, http.StatusBadGateway, "Não foi possível enviar o e-mail no momento. Verifique a configuração SMTP.")
 		return
 	}
 
 	httpx.Write(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"message": "Enviamos o link de ativação do Google Authenticator para o seu e-mail.",
+		"ok":          true,
+		"email":       user.Email,
+		"companyName": companyName,
+		"message":     "Link de recuperação do Google Authenticator enviado com sucesso para " + user.Email + ".",
 	})
+}
+
+// RequestSetupLink mantém compatibilidade para envio direto apenas se Master (para não-Master exige RecoverySendLink com CNPJ).
+func (h *Handlers) RequestSetupLink(w http.ResponseWriter, r *http.Request) {
+	h.RecoverySendLink(w, r)
 }
 
 // GetSetupLink validates the activation link token and returns the Base32 key + otpauth:// deep link (NO QR Code).
@@ -173,11 +332,15 @@ func (h *Handlers) GetSetupLink(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
 	info, err := h.repo.LookupSetupLink(r.Context(), token)
 	if errors.Is(err, ErrInvalidSetupLink) {
-		httpx.Message(w, http.StatusNotFound, "Este link de ativação é inválido ou já expirou. Solicite um novo link na tela de login.")
+		httpx.Message(w, http.StatusNotFound, "Este link de ativação é inválido ou já expirou. Solicite um novo link na recuperação de autenticação.")
 		return
 	}
 	if err != nil {
 		h.fail(w, "consultar link de ativação", err)
+		return
+	}
+	if info.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado.")
 		return
 	}
 
@@ -208,6 +371,10 @@ func (h *Handlers) CompleteSetupLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.fail(w, "consultar link para ativação", err)
+		return
+	}
+	if info.Blocked {
+		httpx.Message(w, http.StatusForbidden, "O acesso deste e-mail está bloqueado.")
 		return
 	}
 
@@ -249,7 +416,6 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 	httpx.Write(w, http.StatusOK, SessionFromContext(r.Context()))
 }
 
-// SwitchTenant allows Master to switch to any company, and any multi-company user to switch between their linked companies.
 func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 	sess := SessionFromContext(r.Context())
 	if sess == nil {

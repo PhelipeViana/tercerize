@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   KeyRound,
   Loader2,
@@ -10,6 +11,7 @@ import {
   Plus,
   ShieldCheck,
   Trash2,
+  Unlock,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import {
   removeMemberAction,
   resendMemberLinkAction,
   saveRoleStateAction,
+  toggleUserBlockAction,
   updateMemberRoleAction,
 } from "@/app/actions/auth";
 import type { TenantMemberRow, TenantRoleRow } from "@/lib/operations/repository";
@@ -223,7 +226,12 @@ export function PermissionsView({
                           )}
                         </td>
                         <td className="px-4 py-4">
-                          {m.totpConfigured ? (
+                          {m.blocked ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 dark:bg-rose-950/80 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                              <span className="size-1.5 rounded-full bg-rose-600" aria-hidden="true" />
+                              Acesso bloqueado
+                            </span>
+                          ) : m.totpConfigured ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                               <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
                               Ativado
@@ -237,18 +245,51 @@ export function PermissionsView({
                         </td>
                         <td className="px-4 py-4 text-right">
                           <div className="inline-flex items-center gap-1.5">
-                            <form action={resendAction}>
-                              <input type="hidden" name="userId" value={m.userId} />
-                              <button
-                                type="submit"
-                                disabled={resendPending}
-                                title="Enviar link do Google Authenticator por e-mail"
-                                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] cursor-pointer"
-                              >
-                                <Mail className="size-3" aria-hidden="true" />
-                                <span>Enviar link</span>
-                              </button>
-                            </form>
+                            {!m.blocked && (
+                              <form action={resendAction}>
+                                <input type="hidden" name="userId" value={m.userId} />
+                                <button
+                                  type="submit"
+                                  disabled={resendPending}
+                                  title="Enviar link do Google Authenticator por e-mail"
+                                  className="inline-flex min-h-8 items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] cursor-pointer"
+                                >
+                                  <Mail className="size-3" aria-hidden="true" />
+                                  <span>Enviar link</span>
+                                </button>
+                              </form>
+                            )}
+
+                            {!m.isMaster && (isMaster || !isOwnerRow) && (
+                              <form action={toggleUserBlockAction}>
+                                <input type="hidden" name="userId" value={m.userId} />
+                                <button
+                                  type="submit"
+                                  title={
+                                    m.blocked
+                                      ? "Desbloquear acesso do usuário"
+                                      : "Bloquear usuário e encerrar todas as sessões imediatamente"
+                                  }
+                                  className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold cursor-pointer ${
+                                    m.blocked
+                                      ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100"
+                                      : "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100"
+                                  }`}
+                                >
+                                  {m.blocked ? (
+                                    <>
+                                      <Unlock className="size-3" aria-hidden="true" />
+                                      <span>Desbloquear</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Ban className="size-3" aria-hidden="true" />
+                                      <span>Bloquear</span>
+                                    </>
+                                  )}
+                                </button>
+                              </form>
+                            )}
 
                             {!isOwnerRow && (
                               <form action={removeMemberAction}>
