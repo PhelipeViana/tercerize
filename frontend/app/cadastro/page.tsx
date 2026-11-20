@@ -8,13 +8,13 @@ export default async function RegisterPage() {
 
   return (
     <AuthShell
-      title="Cadastrar Empresa Prestadora"
-      subtitle="Configure uma nova empresa no ambiente multi-tenant."
+      title="Criar conta empresarial"
+      subtitle="Cadastre uma nova empresa prestadora no ambiente multi-empresas."
       footer={
         <>
-          Já possui acesso?{" "}
-          <Link href="/login" className="font-semibold text-primary hover:underline">
-            Entrar
+          Já possui uma conta?{" "}
+          <Link href="/login" className="font-bold text-[#3B68F7] dark:text-blue-400 hover:underline">
+            Entrar na plataforma
           </Link>
         </>
       }

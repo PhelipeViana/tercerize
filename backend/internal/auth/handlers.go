@@ -105,6 +105,82 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	h.enter(w, r, user.ID, user.TenantID, http.StatusOK)
 }
 
+func (h *Handlers) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+		return
+	}
+	email, msg := normalizeEmail(in.Email)
+	if msg != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{"errors": FieldErrors{"email": {msg}}})
+		return
+	}
+	code, err := h.repo.CreatePasswordReset(r.Context(), email)
+	if err != nil {
+		h.fail(w, "gerar recuperação de senha", err)
+		return
+	}
+	if code == "" {
+		httpx.Write(w, http.StatusNotFound, map[string]any{
+			"message": "Não encontramos uma conta cadastrada com este e-mail.",
+		})
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"email":       email,
+		"previewCode": code,
+		"message":     "Código de verificação gerado com sucesso (válido por 15 minutos).",
+	})
+}
+
+func (h *Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := httpx.Read(r, &in); err != nil {
+		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+		return
+	}
+	email, msg := normalizeEmail(in.Email)
+	if msg != "" {
+		httpx.Message(w, http.StatusBadRequest, msg)
+		return
+	}
+	code := strings.TrimSpace(in.Code)
+	if len(code) != 6 {
+		httpx.Message(w, http.StatusBadRequest, "Informe o código de 6 dígitos.")
+		return
+	}
+	if len([]rune(in.NewPassword)) < 6 {
+		httpx.Message(w, http.StatusBadRequest, "A nova senha precisa ter ao menos 6 caracteres.")
+		return
+	}
+	hash, err := HashPassword(in.NewPassword)
+	if err != nil {
+		h.fail(w, "hash da nova senha", err)
+		return
+	}
+	err = h.repo.ConsumePasswordReset(r.Context(), email, code, hash)
+	if errors.Is(err, ErrInvalidResetCode) {
+		httpx.Message(w, http.StatusBadRequest, "Código de recuperação inválido ou expirado.")
+		return
+	}
+	if err != nil {
+		h.fail(w, "redefinir senha", err)
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "Senha redefinida com sucesso! Você já pode entrar com a nova senha.",
+	})
+}
+
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.End(r.Context(), TokenFrom(r)); err != nil {
 		h.fail(w, "encerrar sessão", err)

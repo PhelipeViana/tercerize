@@ -7,8 +7,7 @@ export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setDark(isDark);
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   function toggle() {
@@ -32,19 +31,13 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label={dark ? "Ativar modo claro" : "Ativar modo escuro"}
-      title={dark ? "Mudar para Modo Claro" : "Mudar para Modo Escuro"}
-      className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-black text-gray-700 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-300 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      title={dark ? "Mudar para modo claro" : "Mudar para modo escuro"}
+      className="inline-flex size-9 items-center justify-center rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/85 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 shadow-2xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
     >
       {dark ? (
-        <>
-          <Sun className="size-4 text-amber-400" aria-hidden="true" />
-          <span className="hidden sm:inline">Modo Claro</span>
-        </>
+        <Moon className="size-4 text-blue-300" aria-hidden="true" />
       ) : (
-        <>
-          <Moon className="size-4 text-blue-600" aria-hidden="true" />
-          <span className="hidden sm:inline">Dark Mode</span>
-        </>
+        <Sun className="size-4 text-slate-700" aria-hidden="true" />
       )}
     </button>
   );

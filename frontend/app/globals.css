@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-jakarta-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -44,83 +44,101 @@
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-/* Light Mode — Inspirado no PortoCercado / Filament Laravel (Tons leves de azul e slate) */
 :root {
-  --background: oklch(0.975 0.008 245);
-  --foreground: oklch(0.2 0.035 250);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.035 250);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.035 250);
-  --primary: oklch(0.54 0.19 254);
+  --background: oklch(0.968 0.014 252);
+  --foreground: oklch(0.19 0.04 258);
+  --card: oklch(1 0 0 / 78%);
+  --card-foreground: oklch(0.19 0.04 258);
+  --popover: oklch(1 0 0 / 92%);
+  --popover-foreground: oklch(0.19 0.04 258);
+  --primary: oklch(0.55 0.21 264);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.018 245);
-  --secondary-foreground: oklch(0.25 0.04 250);
-  --muted: oklch(0.955 0.012 245);
-  --muted-foreground: oklch(0.48 0.035 250);
-  --accent: oklch(0.93 0.03 248);
-  --accent-foreground: oklch(0.24 0.06 252);
+  --secondary: oklch(0.945 0.02 254);
+  --secondary-foreground: oklch(0.24 0.045 258);
+  --muted: oklch(0.95 0.015 254);
+  --muted-foreground: oklch(0.49 0.035 256);
+  --accent: oklch(0.93 0.028 256);
+  --accent-foreground: oklch(0.24 0.06 260);
   --destructive: oklch(0.58 0.21 25);
-  --success: oklch(0.56 0.17 152);
+  --success: oklch(0.58 0.16 154);
   --warning: oklch(0.7 0.16 75);
-  --info: oklch(0.55 0.17 250);
-  --border: oklch(0.91 0.015 245);
-  --input: oklch(0.91 0.015 245);
-  --ring: oklch(0.54 0.19 254);
-  --radius: 0.875rem;
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.2 0.035 250);
-  --sidebar-primary: oklch(0.54 0.19 254);
+  --info: oklch(0.56 0.18 254);
+  --border: oklch(0.91 0.02 254);
+  --input: oklch(0.91 0.02 254);
+  --ring: oklch(0.55 0.21 264);
+  --radius: 1rem;
+  --sidebar: oklch(1 0 0 / 76%);
+  --sidebar-foreground: oklch(0.2 0.04 258);
+  --sidebar-primary: oklch(0.55 0.21 264);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.94 0.025 248);
-  --sidebar-accent-foreground: oklch(0.22 0.06 252);
-  --sidebar-border: oklch(0.92 0.015 245);
-  --sidebar-ring: oklch(0.54 0.19 254);
+  --sidebar-accent: oklch(0.94 0.025 256);
+  --sidebar-accent-foreground: oklch(0.22 0.06 260);
+  --sidebar-border: oklch(1 0 0 / 85%);
+  --sidebar-ring: oklch(0.55 0.21 264);
 }
 
-/* Dark Mode — Inspirado no PortoCercado Dark (slate-950 / slate-900 / slate-800 com textos blue-100/blue-300) */
 .dark {
-  --background: oklch(0.14 0.025 255);
-  --foreground: oklch(0.96 0.015 245);
-  --card: oklch(0.21 0.03 255);
-  --card-foreground: oklch(0.96 0.015 245);
-  --popover: oklch(0.21 0.03 255);
-  --popover-foreground: oklch(0.96 0.015 245);
-  --primary: oklch(0.62 0.19 252);
+  --background: oklch(0.13 0.03 262);
+  --foreground: oklch(0.96 0.015 250);
+  --card: oklch(0.19 0.035 262 / 72%);
+  --card-foreground: oklch(0.96 0.015 250);
+  --popover: oklch(0.2 0.035 262 / 90%);
+  --popover-foreground: oklch(0.96 0.015 250);
+  --primary: oklch(0.6 0.21 264);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.26 0.035 255);
-  --secondary-foreground: oklch(0.95 0.02 245);
-  --muted: oklch(0.25 0.03 255);
-  --muted-foreground: oklch(0.72 0.04 248);
-  --accent: oklch(0.27 0.045 252);
-  --accent-foreground: oklch(0.95 0.02 245);
+  --secondary: oklch(0.25 0.038 262);
+  --secondary-foreground: oklch(0.95 0.018 250);
+  --muted: oklch(0.24 0.032 262);
+  --muted-foreground: oklch(0.71 0.035 254);
+  --accent: oklch(0.26 0.045 262);
+  --accent-foreground: oklch(0.95 0.02 250);
   --destructive: oklch(0.65 0.21 25);
-  --success: oklch(0.68 0.17 152);
+  --success: oklch(0.68 0.16 154);
   --warning: oklch(0.76 0.16 75);
-  --info: oklch(0.66 0.16 248);
-  --border: oklch(0.3 0.035 255);
-  --input: oklch(0.28 0.035 255);
-  --ring: oklch(0.62 0.19 252);
-  --sidebar: oklch(0.18 0.028 255);
-  --sidebar-foreground: oklch(0.96 0.015 245);
-  --sidebar-primary: oklch(0.62 0.19 252);
+  --info: oklch(0.66 0.17 254);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.6 0.21 264);
+  --sidebar: oklch(0.17 0.032 262 / 74%);
+  --sidebar-foreground: oklch(0.96 0.015 250);
+  --sidebar-primary: oklch(0.6 0.21 264);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.26 0.04 254);
-  --sidebar-accent-foreground: oklch(0.96 0.015 245);
-  --sidebar-border: oklch(0.28 0.03 255);
-  --sidebar-ring: oklch(0.62 0.19 252);
+  --sidebar-accent: oklch(0.25 0.042 262);
+  --sidebar-accent-foreground: oklch(0.96 0.015 250);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.6 0.21 264);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-
   body {
-    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+    @apply text-slate-900 dark:text-slate-100;
+    background-image:
+      radial-gradient(at 8% 12%, rgba(196, 219, 255, 0.72) 0px, transparent 52%),
+      radial-gradient(at 88% 10%, rgba(226, 216, 255, 0.65) 0px, transparent 48%),
+      radial-gradient(at 52% 88%, rgba(209, 244, 234, 0.58) 0px, transparent 55%),
+      linear-gradient(135deg, #eef3ff 0%, #f5f7ff 50%, #eff8f7 100%);
+    background-attachment: fixed;
   }
-
+  .dark body {
+    background-image:
+      radial-gradient(at 10% 15%, rgba(59, 104, 247, 0.22) 0px, transparent 50%),
+      radial-gradient(at 88% 12%, rgba(99, 70, 229, 0.2) 0px, transparent 48%),
+      radial-gradient(at 50% 90%, rgba(16, 185, 129, 0.12) 0px, transparent 55%),
+      linear-gradient(135deg, #090d1a 0%, #0d1326 50%, #0a1020 100%);
+    background-attachment: fixed;
+  }
   html {
     @apply font-sans;
   }
+}
+
+.glass-surface {
+  @apply bg-white/75 dark:bg-slate-900/72 backdrop-blur-2xl border border-white/90 dark:border-white/10 shadow-[0_12px_36px_rgba(31,38,135,0.06)] dark:shadow-[0_16px_40px_rgba(0,0,0,0.45)];
+}
+
+.pill-gradient {
+  @apply rounded-full bg-gradient-to-r from-[#3B68F7] to-[#5346E8] hover:from-[#315CE8] hover:to-[#473AD8] text-white font-semibold shadow-[0_8px_20px_-4px_rgba(67,97,238,0.52)] transition-transform active:scale-[0.99];
 }

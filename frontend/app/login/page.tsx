@@ -8,15 +8,17 @@ export default async function LoginPage() {
 
   return (
     <AuthShell
-      title="Plataforma de Gestão de Terceirização e Serviços"
-      subtitle="Rastreabilidade completa de contratos, equipes, EPIs, almoxarifado, OS e financeiro."
+      title="Entrar na plataforma"
+      subtitle="Gerencie contratos, equipes, almoxarifado e ordens de serviço."
       footer={
-        <>
-          Deseja cadastrar uma nova empresa prestadora?{" "}
-          <Link href="/cadastro" className="font-semibold text-primary hover:underline">
-            Criar conta empresarial
-          </Link>
-        </>
+        <div className="space-y-1.5">
+          <p>
+            Ainda não possui conta?{" "}
+            <Link href="/cadastro" className="font-bold text-[#3B68F7] dark:text-blue-400 hover:underline">
+              Criar conta empresarial
+            </Link>
+          </p>
+        </div>
       }
     >
       <LoginForm />

@@ -34,6 +34,8 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 		r.Post("/auth/register", authHandlers.Register)
 		r.Post("/auth/login", authHandlers.Login)
 		r.Post("/auth/logout", authHandlers.Logout)
+		r.Post("/auth/forgot-password", authHandlers.ForgotPassword)
+		r.Post("/auth/reset-password", authHandlers.ResetPassword)
 
 		r.Group(func(r chi.Router) {
 			r.Use(authHandlers.Require)
@@ -43,7 +45,7 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/tenants/switch", authHandlers.SwitchTenant)
 			r.Post("/tenants", opHandlers.CreateCompany)
 
-			// 6 Módulos do Briefing Executivo
+			// 6 Módulos Operacionais
 			r.Post("/clients", opHandlers.CreateClient)
 			r.Post("/contracts", opHandlers.CreateContract)
 			r.Post("/employees", opHandlers.CreateEmployee)

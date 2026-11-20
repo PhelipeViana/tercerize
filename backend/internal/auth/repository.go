@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +33,7 @@ type SessionContext struct {
 }
 
 var ErrEmailTaken = errors.New("e-mail já cadastrado")
+var ErrInvalidResetCode = errors.New("código de recuperação inválido ou expirado")
 
 type Repository struct {
 	pool *pgxpool.Pool
@@ -82,6 +86,62 @@ func (r *Repository) FindUserForLogin(ctx context.Context, email string) (*Login
 		return nil, err
 	}
 	return &u, nil
+}
+
+func (r *Repository) CreatePasswordReset(ctx context.Context, email string) (string, error) {
+	user, err := r.FindUserForLogin(ctx, email)
+	if err != nil || user == nil {
+		return "", err
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(900000))
+	if err != nil {
+		return "", err
+	}
+	code := fmt.Sprintf("%06d", n.Int64()+100000)
+	expiresAt := time.Now().Add(15 * time.Minute)
+
+	_, err = r.pool.Exec(ctx,
+		`INSERT INTO password_resets (user_id, code, expires_at) VALUES ($1, $2, $3)`,
+		user.ID, code, expiresAt)
+	if err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+func (r *Repository) ConsumePasswordReset(ctx context.Context, email, code, newPasswordHash string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var resetID, userID string
+	err = tx.QueryRow(ctx,
+		`SELECT pr.id, pr.user_id
+		   FROM password_resets pr
+		   JOIN users u ON u.id = pr.user_id
+		  WHERE lower(u.email) = lower($1)
+		    AND pr.code = $2
+		    AND pr.used = false
+		    AND pr.expires_at > now()
+		  ORDER BY pr.created_at DESC
+		  LIMIT 1`,
+		email, code).Scan(&resetID, &userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidResetCode
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE password_resets SET used = true WHERE id = $1`, resetID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, newPasswordHash, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) InsertSession(ctx context.Context, userID, tenantID, tokenHash string, expiresAt time.Time) error {

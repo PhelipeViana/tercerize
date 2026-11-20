@@ -6,14 +6,14 @@ interface Props extends ComponentProps<"input"> {
   errors?: string[];
 }
 
-export function Field({ id, label, errors, className, ...input }: Props) {
+export function Field({ id, label, errors, ...input }: Props) {
   const errorId = `${id}-error`;
   const invalid = Boolean(errors?.length);
   return (
-    <div>
+    <div className="space-y-1.5">
       <label
         htmlFor={id}
-        className="block text-xs font-black text-gray-700 dark:text-blue-300 mb-2 uppercase tracking-wider"
+        className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
       >
         {label}
       </label>
@@ -22,11 +22,11 @@ export function Field({ id, label, errors, className, ...input }: Props) {
         name={id}
         aria-invalid={invalid}
         aria-describedby={invalid ? errorId : undefined}
-        className="w-full px-4 py-3 border-2 border-gray-100 dark:border-slate-700 rounded-xl bg-gray-50/70 dark:bg-slate-800 text-sm text-gray-900 dark:text-white font-bold placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-blue-500 transition-colors"
+        className="w-full rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-800/85 px-4 py-3 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] transition-colors"
         {...input}
       />
       {invalid && (
-        <p id={errorId} role="alert" className="mt-1.5 text-xs font-bold text-red-500">
+        <p id={errorId} role="alert" className="pl-2 text-xs font-medium text-rose-600 dark:text-rose-400">
           {errors![0]}
         </p>
       )}

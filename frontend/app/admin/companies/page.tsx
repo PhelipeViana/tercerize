@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Building2, CheckCircle2, Plus, ShieldCheck } from "lucide-react";
+import { Building2, Check, Layers, Plus } from "lucide-react";
 import { createCompanyAction, switchTenantAction } from "@/app/actions/auth";
 import { AdminShell } from "@/components/shell/admin-shell";
 import { requireSession } from "@/lib/auth/dal";
@@ -17,66 +17,42 @@ export default async function CompaniesPage() {
       session={session}
       companies={companies}
       current="companies"
-      breadcrumb="Multi-Empresas (Nível Desenvolvedor)"
-      routeLabel="/admin/companies"
+      title="Multi-Empresas"
+      subtitle="Governança de empresas prestadoras cadastradas e troca de contexto operacional em tempo real."
     >
-      <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700/50 border-b-4 border-b-blue-600 p-6 shadow-xl flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/25">
-            <ShieldCheck className="size-6" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">
-              Supervisão Multi-Tenant
-            </p>
-            <h1 className="text-xl font-black text-gray-900 dark:text-white italic">
-              Painel Desenvolvedor — Governança Multi-Empresas
-            </h1>
-            <p className="text-xs font-bold text-gray-500 dark:text-blue-300/80 mt-0.5">
-              Autenticado como <strong>{session.user.email}</strong>. Provisione novas empresas prestadoras e alterne o contexto operacional ativo em tempo real.
-            </p>
-          </div>
-        </div>
-      </section>
-
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700/50 shadow-2xl overflow-hidden">
-          <div className="border-b border-gray-100 dark:border-slate-700 px-6 py-4 bg-gray-50/40 dark:bg-slate-900/40">
-            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">
-              Empresas Cadastradas na Plataforma ({companies.length})
-            </h2>
+        <section className="rounded-[28px] glass-surface p-5 sm:p-7 space-y-5">
+          <div className="inline-flex items-center rounded-full border border-slate-200/80 dark:border-white/10 bg-slate-100/80 dark:bg-slate-800/70 p-1">
+            <span className="pill-gradient px-5 py-2 text-sm">
+              Empresas cadastradas ({companies.length})
+            </span>
           </div>
 
-          <div className="divide-y divide-gray-100 dark:divide-slate-700/60">
+          <div className="divide-y divide-slate-200/60 dark:divide-white/10">
             {companies.map((c) => {
               const isCurrent = c.id === session.tenant.id;
               return (
-                <div
-                  key={c.id}
-                  className="p-5 flex flex-wrap items-center justify-between gap-4 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors"
-                >
-                  <div className="min-w-0 space-y-1.5">
+                <div key={c.id} className="py-4 flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-2.5">
-                      <p className="text-sm font-black text-gray-900 dark:text-white">{c.name}</p>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p>
                       {isCurrent && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 px-2.5 py-0.5 text-[11px] font-black">
-                          <CheckCircle2 className="size-3.5" aria-hidden="true" />
-                          Ativa na Sessão
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100/90 dark:bg-emerald-950/80 px-3 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                          <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
+                          Ativa na sessão
                         </span>
                       )}
                     </div>
-                    <p className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
-                      CNPJ: {c.cnpj}
-                    </p>
-                    <div className="flex flex-wrap gap-4 text-xs font-bold text-gray-500 dark:text-slate-400 tabular-nums">
+                    <p className="font-mono text-xs text-slate-500 dark:text-slate-400">CNPJ: {c.cnpj}</p>
+                    <div className="flex flex-wrap gap-4 text-xs text-slate-600 dark:text-slate-300 tabular-nums">
                       <span>
-                        <strong className="text-gray-900 dark:text-white">{c.contractsCount}</strong> contratos
+                        <strong>{c.contractsCount}</strong> contratos
                       </span>
                       <span>
-                        <strong className="text-gray-900 dark:text-white">{c.employeesCount}</strong> colaboradores
+                        <strong>{c.employeesCount}</strong> colaboradores
                       </span>
                       <span>
-                        <strong className="text-gray-900 dark:text-white">{c.serviceOrdersCount}</strong> ordens de serviço
+                        <strong>{c.serviceOrdersCount}</strong> ordens de serviço
                       </span>
                     </div>
                   </div>
@@ -86,9 +62,9 @@ export default async function CompaniesPage() {
                       <input type="hidden" name="tenantId" value={c.id} />
                       <button
                         type="submit"
-                        className="rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-md shadow-blue-500/20 transition-colors cursor-pointer"
+                        className="min-h-9 pill-gradient px-4 py-1.5 text-xs cursor-pointer"
                       >
-                        Assumir Contexto
+                        Ativar empresa
                       </button>
                     </form>
                   )}
@@ -98,42 +74,34 @@ export default async function CompaniesPage() {
           </div>
         </section>
 
-        <section className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700/50 p-6 shadow-xl space-y-4 h-fit">
-          <div className="flex items-center gap-3 border-b border-gray-100 dark:border-slate-700 pb-3">
-            <div className="p-2.5 rounded-xl bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400">
+        <section className="rounded-[28px] glass-surface p-6 space-y-4 h-fit">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 text-[#3B68F7] dark:text-blue-300">
               <Building2 className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">
-                Provisionar Nova Empresa
-              </h2>
-              <p className="text-xs font-bold text-gray-500 dark:text-slate-400">
-                Cria um ambiente isolado para uma nova empresa terceirizadora.
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Nova empresa prestadora</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Cria um ambiente isolado multi-tenant.
               </p>
             </div>
           </div>
 
-          <form action={createCompanyAction} className="space-y-4">
-            <div>
-              <label
-                htmlFor="comp-name"
-                className="block text-xs font-black text-gray-700 dark:text-blue-300 mb-1.5 uppercase tracking-wider"
-              >
-                Razão Social da Empresa *
+          <form action={createCompanyAction} className="space-y-3.5">
+            <div className="space-y-1">
+              <label htmlFor="comp-name" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Razão social da empresa *
               </label>
               <input
                 id="comp-name"
                 name="name"
                 required
                 placeholder="Ex.: Pantanal Facilities & Manutenção Ltda…"
-                className="w-full px-3.5 py-2.5 border-2 border-gray-100 dark:border-slate-700 rounded-xl bg-gray-50/70 dark:bg-slate-900 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="w-full rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-800/85 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               />
             </div>
-            <div>
-              <label
-                htmlFor="comp-cnpj"
-                className="block text-xs font-black text-gray-700 dark:text-blue-300 mb-1.5 uppercase tracking-wider"
-              >
+            <div className="space-y-1">
+              <label htmlFor="comp-cnpj" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
                 CNPJ *
               </label>
               <input
@@ -141,15 +109,15 @@ export default async function CompaniesPage() {
                 name="cnpj"
                 required
                 placeholder="00.000.000/0001-00…"
-                className="w-full px-3.5 py-2.5 border-2 border-gray-100 dark:border-slate-700 rounded-xl bg-gray-50/70 dark:bg-slate-900 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="w-full rounded-full border border-slate-200/90 dark:border-white/15 bg-white/90 dark:bg-slate-800/85 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               />
             </div>
             <button
               type="submit"
-              className="w-full min-h-11 bg-blue-600 hover:bg-blue-700 text-white font-black py-2.5 px-5 rounded-xl shadow-lg shadow-blue-500/20 text-xs uppercase tracking-widest flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="w-full min-h-10 pill-gradient py-2.5 px-5 text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Plus className="size-4" aria-hidden="true" />
-              <span>Criar Empresa e Ativar</span>
+              <span>Criar empresa e ativar</span>
             </button>
           </form>
         </section>

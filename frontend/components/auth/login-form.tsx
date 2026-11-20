@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { login } from "@/app/actions/auth";
 import { Field } from "./field";
@@ -13,14 +14,14 @@ export function LoginForm() {
       {state?.message && (
         <p
           role="alert"
-          className="rounded-xl border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-xs font-bold text-red-700 dark:text-red-300"
+          className="rounded-2xl border border-rose-200 dark:border-rose-800/60 bg-rose-50/90 dark:bg-rose-950/50 px-4 py-3 text-xs font-medium text-rose-700 dark:text-rose-300"
         >
           {state.message}
         </p>
       )}
       <Field
         id="email"
-        label="E-mail Corporativo"
+        label="E-mail corporativo"
         type="email"
         autoComplete="email"
         spellCheck={false}
@@ -29,34 +30,44 @@ export function LoginForm() {
         errors={state?.errors?.email}
         required
       />
-      <Field
-        id="password"
-        label="Senha de Acesso"
-        type="password"
-        autoComplete="current-password"
-        placeholder="••••••••…"
-        defaultValue="password"
-        errors={state?.errors?.password}
-        required
-      />
-
-      <div className="rounded-2xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/35 p-4 text-xs">
-        <div className="flex items-center gap-2 font-black uppercase tracking-wider text-blue-700 dark:text-blue-300">
-          <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
-          <span>Acesso Nível Desenvolvedor (Multi-Empresas)</span>
+      <div className="space-y-1.5">
+        <Field
+          id="password"
+          label="Senha"
+          type="password"
+          autoComplete="current-password"
+          placeholder="••••••••…"
+          defaultValue="password"
+          errors={state?.errors?.password}
+          required
+        />
+        <div className="flex justify-end pr-1 pt-0.5">
+          <Link
+            href="/recuperar-senha"
+            className="text-xs font-semibold text-[#3B68F7] dark:text-blue-400 hover:underline"
+          >
+            Esqueceu sua senha?
+          </Link>
         </div>
-        <p className="mt-1.5 font-mono text-[11px] font-bold text-gray-600 dark:text-blue-200/80">
-          E-mail: phelipegabriel1988@gmail.com • Senha: password
+      </div>
+
+      <div className="rounded-2xl border border-blue-200/70 dark:border-blue-500/20 bg-blue-50/60 dark:bg-blue-950/30 p-3.5 text-xs">
+        <div className="flex items-center gap-2 font-semibold text-blue-700 dark:text-blue-300">
+          <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
+          <span>Credencial desenvolvedor multi-empresas</span>
+        </div>
+        <p className="mt-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+          phelipegabriel1988@gmail.com • Senha: password
         </p>
       </div>
 
       <button
         type="submit"
         disabled={pending}
-        className="w-full min-h-12 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-black py-3.5 px-6 rounded-xl shadow-lg shadow-blue-500/25 uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        className="w-full min-h-12 pill-gradient py-3 px-6 text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
       >
         {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-        <span>Entrar no Painel Administrativo</span>
+        <span>Entrar na plataforma</span>
       </button>
     </form>
   );

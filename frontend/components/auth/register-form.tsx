@@ -3,7 +3,6 @@
 import { useActionState } from "react";
 import { Loader2 } from "lucide-react";
 import { register } from "@/app/actions/auth";
-import { Button } from "@/components/ui/button";
 import { Field } from "./field";
 
 export function RegisterForm() {
@@ -12,22 +11,25 @@ export function RegisterForm() {
   return (
     <form action={action} className="space-y-4" noValidate>
       {state?.message && (
-        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <p
+          role="alert"
+          className="rounded-2xl border border-rose-200 dark:border-rose-800/60 bg-rose-50/90 dark:bg-rose-950/50 px-4 py-3 text-xs font-medium text-rose-700 dark:text-rose-300"
+        >
           {state.message}
         </p>
       )}
       <Field
         id="companyName"
-        label="Razão Social da Empresa Prestadora"
+        label="Razão social da empresa"
         type="text"
-        placeholder="Ex.: Nova Terceirização & Serviços Ltda…"
+        placeholder="Ex.: Horizonte Facilities & Serviços Ltda…"
         defaultValue={state?.values?.companyName}
         errors={state?.errors?.companyName}
         required
       />
       <Field
         id="cnpj"
-        label="CNPJ da Empresa"
+        label="CNPJ"
         type="text"
         placeholder="00.000.000/0001-00…"
         defaultValue={state?.values?.cnpj}
@@ -36,17 +38,17 @@ export function RegisterForm() {
       />
       <Field
         id="name"
-        label="Seu Nome Completo"
+        label="Nome do gestor responsável"
         type="text"
         autoComplete="name"
-        placeholder="Nome do gestor responsável…"
+        placeholder="Seu nome completo…"
         defaultValue={state?.values?.name}
         errors={state?.errors?.name}
         required
       />
       <Field
         id="email"
-        label="E-mail"
+        label="E-mail corporativo"
         type="email"
         autoComplete="email"
         spellCheck={false}
@@ -57,17 +59,21 @@ export function RegisterForm() {
       />
       <Field
         id="password"
-        label="Senha"
+        label="Crie uma senha"
         type="password"
         autoComplete="new-password"
         placeholder="Mínimo 6 caracteres…"
         errors={state?.errors?.password}
         required
       />
-      <Button type="submit" className="w-full min-h-11 text-sm font-semibold" disabled={pending}>
-        {pending && <Loader2 className="animate-spin mr-1.5" aria-hidden="true" />}
-        Cadastrar Empresa e Entrar
-      </Button>
+      <button
+        type="submit"
+        disabled={pending}
+        className="w-full min-h-12 pill-gradient py-3 px-6 text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+      >
+        {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+        <span>Cadastrar empresa</span>
+      </button>
     </form>
   );
 }

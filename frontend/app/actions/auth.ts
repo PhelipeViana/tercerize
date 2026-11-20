@@ -13,6 +13,16 @@ export type AuthFormState =
     }
   | undefined;
 
+export type RecoverState =
+  | {
+      step: "request" | "verify" | "done";
+      email?: string;
+      previewCode?: string;
+      message?: string;
+      error?: string;
+    }
+  | undefined;
+
 interface Entered {
   session: { token: string; expiresAt: string };
 }
@@ -55,6 +65,72 @@ export async function register(_state: AuthFormState, formData: FormData): Promi
 export async function login(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const email = text(formData.get("email"));
   return enter("/api/auth/login", { email, password: text(formData.get("password")) }, { email });
+}
+
+export async function recoverPasswordAction(prevState: RecoverState, formData: FormData): Promise<RecoverState> {
+  const intent = text(formData.get("intent")) || "request";
+  const email = text(formData.get("email")).trim();
+
+  if (intent === "request") {
+    try {
+      const res = await apiFetch("/api/auth/forgot-password", {
+        method: "POST",
+        body: { email },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        email?: string;
+        previewCode?: string;
+        message?: string;
+        errors?: { email?: string[] };
+      };
+      if (!res.ok || !data.ok) {
+        return {
+          step: "request",
+          email,
+          error: data.errors?.email?.[0] ?? data.message ?? "Não foi possível gerar o código de recuperação.",
+        };
+      }
+      return {
+        step: "verify",
+        email: data.email ?? email,
+        previewCode: data.previewCode,
+        message: data.message,
+      };
+    } catch {
+      return { step: "request", email, error: OFFLINE };
+    }
+  }
+
+  const code = text(formData.get("code")).trim();
+  const newPassword = text(formData.get("newPassword"));
+  try {
+    const res = await apiFetch("/api/auth/reset-password", {
+      method: "POST",
+      body: { email, code, newPassword },
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    if (!res.ok || !data.ok) {
+      return {
+        step: "verify",
+        email,
+        previewCode: prevState?.previewCode,
+        error: data.message ?? "Código inválido ou falha ao redefinir a senha.",
+      };
+    }
+    return {
+      step: "done",
+      email,
+      message: data.message ?? "Senha redefinida com sucesso!",
+    };
+  } catch {
+    return {
+      step: "verify",
+      email,
+      previewCode: prevState?.previewCode,
+      error: OFFLINE,
+    };
+  }
 }
 
 export async function logout(): Promise<void> {

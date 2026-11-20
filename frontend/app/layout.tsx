@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const jakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-jakarta-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 const geistMono = Geist_Mono({
@@ -13,19 +14,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tercerize — Plataforma de Gestão de Terceirização e Serviços",
+  title: "Tercerize — Plataforma de gestão de terceirização e serviços",
   description: "Rastreabilidade completa de contratos, colaboradores, EPIs, almoxarifado, ordens de serviço e financeiro.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2563eb",
+  themeColor: "#3B68F7",
 };
 
 const themeInitScript = `
 (function() {
   try {
     var saved = localStorage.getItem('tercerize_theme');
-    if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    if (saved === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
@@ -39,12 +40,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${jakartaSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="h-full selection:bg-blue-600 selection:text-white">{children}</body>
+      <body className="h-full selection:bg-[#3B68F7] selection:text-white">{children}</body>
     </html>
   );
 }
