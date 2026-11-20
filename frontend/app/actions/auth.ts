@@ -327,10 +327,18 @@ export async function logout(): Promise<void> {
 }
 
 export async function switchTenantAction(formData: FormData): Promise<void> {
-  const tenantId = text(formData.get("tenantId"));
+  const tenantId = text(formData.get("tenantId")).trim();
   if (!tenantId) return;
-  await apiFetch("/api/tenants/switch", { method: "POST", body: { tenantId } });
+  const isMasterContext = tenantId.toUpperCase() === "MASTER";
+  await apiFetch("/api/tenants/switch", {
+    method: "POST",
+    body: { tenantId: isMasterContext ? "MASTER" : tenantId },
+  });
   revalidatePath("/", "layout");
+  if (isMasterContext) {
+    redirect("/admin/companies");
+  }
+  redirect("/admin/contracts");
 }
 
 export async function createCompanyStateAction(
@@ -402,9 +410,6 @@ export async function createCompanyStateAction(
       };
     }
 
-    if (data.id) {
-      await apiFetch("/api/tenants/switch", { method: "POST", body: { tenantId: data.id } });
-    }
     revalidatePath("/", "layout");
     return {
       ok: true,
@@ -631,6 +636,26 @@ export async function toggleTenantActiveAction(formData: FormData): Promise<void
   if (!tenantId) return;
   await apiFetch("/api/tenants/toggle-active", { method: "POST", body: { tenantId } });
   revalidatePath("/", "layout");
+}
+
+export async function resendCompanyOwnerLinkAction(
+  _prev: RBACActionState,
+  formData: FormData,
+): Promise<RBACActionState> {
+  const tenantId = text(formData.get("tenantId")).trim();
+  if (!tenantId) return { error: "Empresa inválida." };
+  try {
+    const res = await apiFetch("/api/tenants/resend-owner-link", {
+      method: "POST",
+      body: { tenantId },
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    if (!res.ok) return { error: data.message ?? "Não foi possível reenviar o link de acesso." };
+    revalidatePath("/admin/companies");
+    return { ok: true, message: data.message ?? "Link de ativação enviado com sucesso." };
+  } catch {
+    return { error: OFFLINE };
+  }
 }
 
 export async function toggleUserBlockAction(formData: FormData): Promise<void> {

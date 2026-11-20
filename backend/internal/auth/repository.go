@@ -188,6 +188,16 @@ func (r *Repository) MarkTOTPConfigured(ctx context.Context, userID string) erro
 	return err
 }
 
+func (r *Repository) RecordUserAccess(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users
+		    SET last_login_at = now(),
+		        login_count = COALESCE(login_count, 0) + 1,
+		        totp_configured_at = COALESCE(totp_configured_at, now())
+		  WHERE id = $1`, userID)
+	return err
+}
+
 func (r *Repository) CreateSetupLink(ctx context.Context, userID, tenantID string) (string, error) {
 	rawBytes := make([]byte, 24)
 	if _, err := rand.Read(rawBytes); err != nil {
@@ -289,14 +299,11 @@ func (r *Repository) ConsumeSetupLink(ctx context.Context, linkID, userID string
 }
 
 func (r *Repository) FindDefaultTenantForUser(ctx context.Context, userID string, isMaster bool) (string, error) {
-	var tenantID string
 	if isMaster {
-		err := r.pool.QueryRow(ctx, `SELECT id FROM tenants ORDER BY created_at ASC LIMIT 1`).Scan(&tenantID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return tenantID, err
+		// O Master entra por padrão no contexto MASTER (Painel Global), podendo escolher qualquer empresa depois.
+		return "", nil
 	}
+	var tenantID string
 	err := r.pool.QueryRow(ctx,
 		`SELECT tm.tenant_id
 		   FROM tenant_memberships tm
@@ -352,9 +359,13 @@ func (r *Repository) SwitchActiveTenant(ctx context.Context, token string, tenan
 	if token == "" {
 		return errors.New("sessão ausente")
 	}
+	var tenantPtr *string
+	if trimmed := strings.TrimSpace(tenantID); trimmed != "" && !strings.EqualFold(trimmed, "MASTER") {
+		tenantPtr = &trimmed
+	}
 	_, err := r.pool.Exec(ctx,
 		`UPDATE sessions SET active_tenant_id = $1 WHERE token_hash = $2 AND expires_at > now()`,
-		tenantID, hashToken(token))
+		tenantPtr, hashToken(token))
 	return err
 }
 

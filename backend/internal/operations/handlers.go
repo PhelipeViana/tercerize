@@ -841,6 +841,58 @@ func (h *Handlers) ToggleTenantActive(w http.ResponseWriter, r *http.Request) {
 	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "active": newActive})
 }
 
+// ResendCompanyOwnerLink: POST /api/tenants/resend-owner-link (exclusivo Master)
+// Reenvia o link de ativação do Google Authenticator diretamente para o responsável (Dono) de uma empresa.
+func (h *Handlers) ResendCompanyOwnerLink(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil || !sess.User.IsMaster {
+		httpx.Message(w, http.StatusForbidden, "Apenas acesso Master pode reenviar convites de empresa.")
+		return
+	}
+	var in struct {
+		TenantID string `json:"tenantId"`
+	}
+	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.TenantID) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Informe a empresa.")
+		return
+	}
+	targetID := strings.TrimSpace(in.TenantID)
+	var companyName, ownerName, ownerEmail string
+	var ownerUserID *string
+	var active bool
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT name, COALESCE(owner_name, ''), COALESCE(owner_email, ''), owner_user_id::text, active
+		   FROM tenants
+		  WHERE id = $1`, targetID).Scan(&companyName, &ownerName, &ownerEmail, &ownerUserID, &active)
+	if err != nil {
+		httpx.Message(w, http.StatusNotFound, "Empresa não encontrada.")
+		return
+	}
+	if !active {
+		httpx.Message(w, http.StatusBadRequest, "Ative a empresa antes de reenviar o link de acesso ao responsável.")
+		return
+	}
+	if ownerUserID == nil || *ownerUserID == "" || strings.TrimSpace(ownerEmail) == "" {
+		httpx.Message(w, http.StatusBadRequest, "Esta empresa não possui um responsável válido configurado.")
+		return
+	}
+	rawToken, err := h.authRepo.CreateSetupLink(r.Context(), *ownerUserID, targetID)
+	if err != nil {
+		httpx.Message(w, http.StatusInternalServerError, "Erro ao gerar link de ativação.")
+		return
+	}
+	activationURL := fmt.Sprintf("%s/ativar-autenticador?token=%s", h.appURL, url.QueryEscape(rawToken))
+	if err := h.mailer.SendAuthenticatorLink(ownerEmail, ownerName, companyName, "Dono da empresa", activationURL); err != nil {
+		h.log.Error("reenviar link dono empresa SMTP", "to", ownerEmail, "err", err)
+		httpx.Message(w, http.StatusBadGateway, "Falha ao enviar o e-mail SMTP: "+err.Error())
+		return
+	}
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "Novo link do Google Authenticator enviado para " + ownerEmail + ".",
+	})
+}
+
 // ToggleUserBlock: POST /api/rbac/members/block (Master ou Dono da empresa ativa)
 // Ao bloquear um usuário (inclusive um Dono, quando acionado pelo Master), revoga imediatamente todas as sessões e links ativos.
 func (h *Handlers) ToggleUserBlock(w http.ResponseWriter, r *http.Request) {

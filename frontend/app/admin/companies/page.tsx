@@ -16,14 +16,11 @@ export default async function CompaniesPage() {
       session={session}
       companies={companies}
       current="companies"
-      title="Multi-Empresas (Master)"
-      subtitle="Cadastre empresas com CNPJ único, defina Nome e E-mail do responsável e envie o link de acesso por e-mail."
+      title="Gestão de empresas"
+      subtitle="Controle exclusivo Master de empresas clientes, acessos e ativação."
+      hideHeader
     >
-      <CompaniesView
-        activeTenantId={session.tenant.id}
-        activeTenantName={session.tenant.name}
-        companies={companies}
-      />
+      <CompaniesView companies={companies} />
     </AdminShell>
   );
 }

@@ -52,6 +52,7 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/tenants", opHandlers.CreateCompany)
 			r.Post("/tenants/update", opHandlers.UpdateCompany)
 			r.Post("/tenants/toggle-active", opHandlers.ToggleTenantActive)
+			r.Post("/tenants/resend-owner-link", opHandlers.ResendCompanyOwnerLink)
 
 			// Roles e Permissões (exclusivo Dono da empresa ativa ou Master)
 			r.Post("/rbac/roles", opHandlers.CreateOrUpdateRole)

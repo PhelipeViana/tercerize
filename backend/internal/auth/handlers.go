@@ -170,7 +170,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	if err := h.limiter.Reset(ctx, key); err != nil {
 		h.log.Error("limite de login indisponível", "err", err)
 	}
-	_ = h.repo.MarkTOTPConfigured(ctx, user.ID)
+	_ = h.repo.RecordUserAccess(ctx, user.ID)
 	h.enter(w, r, user.ID, tenantID, http.StatusOK)
 }
 
@@ -387,6 +387,7 @@ func (h *Handlers) CompleteSetupLink(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "consumir link de ativação", err)
 		return
 	}
+	_ = h.repo.RecordUserAccess(r.Context(), info.UserID)
 
 	tenantID := info.TenantID
 	if tenantID == "" {
@@ -425,11 +426,24 @@ func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		TenantID string `json:"tenantId"`
 	}
-	if err := httpx.Read(r, &in); err != nil || strings.TrimSpace(in.TenantID) == "" {
+	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
 		return
 	}
 	targetID := strings.TrimSpace(in.TenantID)
+	// Permitir que o Master retorne ao contexto MASTER (Painel Global)
+	if sess.User.IsMaster && (targetID == "" || strings.EqualFold(targetID, "MASTER")) {
+		if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), ""); err != nil {
+			h.fail(w, "retornar ao contexto master", err)
+			return
+		}
+		httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "mode": "master"})
+		return
+	}
+	if targetID == "" {
+		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+		return
+	}
 	allowed, err := h.repo.UserCanAccessTenant(r.Context(), sess.User.ID, sess.User.IsMaster, targetID)
 	if err != nil {
 		h.fail(w, "verificar acesso à empresa", err)
@@ -443,7 +457,7 @@ func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "alternar empresa ativa", err)
 		return
 	}
-	httpx.Write(w, http.StatusOK, map[string]any{"ok": true})
+	httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "mode": "tenant"})
 }
 
 func (h *Handlers) enter(w http.ResponseWriter, r *http.Request, userID, tenantID string, status int) {

@@ -8,6 +8,14 @@ export interface CompanyRow {
   ownerName: string;
   ownerEmail: string;
   active: boolean;
+  ownerBlocked: boolean;
+  ownerTotpConfigured: boolean;
+  ownerLastLoginAt: string | null;
+  ownerLoginCount: number;
+  lastInviteSentAt: string | null;
+  activeSessionsCount: number;
+  membersCount: number;
+  createdAt: string;
   userRoleName: string;
   userRoleKey: string;
   clientsCount: number;
@@ -34,6 +42,8 @@ export interface TenantMemberRow {
   isMaster: boolean;
   blocked: boolean;
   totpConfigured: boolean;
+  lastLoginAt: string | null;
+  loginCount: number;
   roleId: string;
   roleKey: string;
   roleName: string;
@@ -160,6 +170,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       owner_name: string;
       owner_email: string;
       active: boolean;
+      owner_blocked: boolean;
+      owner_totp_configured: boolean;
+      owner_last_login_at: string | null;
+      owner_login_count: number;
+      last_invite_sent_at: string | null;
+      active_sessions_count: string;
+      members_count: string;
+      created_at: string;
       clients_count: string;
       contracts_count: string;
       employees_count: string;
@@ -169,12 +187,25 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
               COALESCE(t.owner_name, '') AS owner_name,
               COALESCE(t.owner_email, '') AS owner_email,
               t.active,
+              COALESCE(ou.blocked, false) AS owner_blocked,
+              (ou.totp_configured_at IS NOT NULL) AS owner_totp_configured,
+              to_char(ou.last_login_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS owner_last_login_at,
+              COALESCE(ou.login_count, 0) AS owner_login_count,
+              (SELECT to_char(MAX(l.created_at) AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI')
+                 FROM auth_setup_links l
+                WHERE l.user_id = t.owner_user_id AND (l.tenant_id = t.id OR l.tenant_id IS NULL)) AS last_invite_sent_at,
+              (SELECT count(*) FROM sessions s
+                 JOIN users su ON su.id = s.user_id
+                WHERE s.active_tenant_id = t.id AND s.expires_at > now() AND su.is_master = false) AS active_sessions_count,
+              (SELECT count(*) FROM tenant_memberships tm WHERE tm.tenant_id = t.id) AS members_count,
+              to_char(t.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY') AS created_at,
               (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
               (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
               (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
               (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
          FROM tenants t
-        ORDER BY t.created_at ASC`,
+         LEFT JOIN users ou ON ou.id = t.owner_user_id
+        ORDER BY t.created_at DESC`,
     );
     return rows.map((r) => ({
       id: r.id,
@@ -183,6 +214,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       ownerName: r.owner_name,
       ownerEmail: r.owner_email,
       active: r.active,
+      ownerBlocked: r.owner_blocked,
+      ownerTotpConfigured: r.owner_totp_configured,
+      ownerLastLoginAt: r.owner_last_login_at,
+      ownerLoginCount: Number(r.owner_login_count),
+      lastInviteSentAt: r.last_invite_sent_at,
+      activeSessionsCount: Number(r.active_sessions_count),
+      membersCount: Number(r.members_count),
+      createdAt: r.created_at,
       userRoleName: "Master",
       userRoleKey: "master",
       clientsCount: Number(r.clients_count),
@@ -199,6 +238,7 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     owner_name: string;
     owner_email: string;
     active: boolean;
+    created_at: string;
     role_name: string;
     role_key: string;
     clients_count: string;
@@ -210,6 +250,7 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
             COALESCE(t.owner_name, '') AS owner_name,
             COALESCE(t.owner_email, '') AS owner_email,
             t.active,
+            to_char(t.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY') AS created_at,
             tr.name AS role_name,
             tr.key AS role_key,
             (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
@@ -230,6 +271,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     ownerName: r.owner_name,
     ownerEmail: r.owner_email,
     active: r.active,
+    ownerBlocked: false,
+    ownerTotpConfigured: true,
+    ownerLastLoginAt: null,
+    ownerLoginCount: 0,
+    lastInviteSentAt: null,
+    activeSessionsCount: 0,
+    membersCount: 0,
+    createdAt: r.created_at,
     userRoleName: r.role_name,
     userRoleKey: r.role_key,
     clientsCount: Number(r.clients_count),
@@ -276,6 +325,8 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
     is_master: boolean;
     blocked: boolean;
     totp_configured_at: string | null;
+    last_login_at: string | null;
+    login_count: number;
     role_id: string;
     role_key: string;
     role_name: string;
@@ -284,6 +335,8 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
   }>(
     `SELECT tm.id AS membership_id, u.id AS user_id, u.name AS user_name, u.email AS user_email,
             u.is_master, COALESCE(u.blocked, false) AS blocked, u.totp_configured_at,
+            to_char(u.last_login_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS last_login_at,
+            COALESCE(u.login_count, 0) AS login_count,
             tr.id AS role_id, tr.key AS role_key, tr.name AS role_name,
             (SELECT count(*) FROM tenant_memberships tm2 WHERE tm2.user_id = u.id AND tm2.tenant_id <> $1) AS other_companies_count,
             to_char(tm.created_at, 'DD/MM/YYYY') AS created_at
@@ -302,6 +355,8 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
     isMaster: r.is_master,
     blocked: r.blocked,
     totpConfigured: Boolean(r.totp_configured_at),
+    lastLoginAt: r.last_login_at,
+    loginCount: Number(r.login_count),
     roleId: r.role_id,
     roleKey: r.role_key,
     roleName: r.role_name,
