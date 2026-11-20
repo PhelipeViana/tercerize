@@ -6,6 +6,7 @@ export interface CompanyRow {
   name: string;
   cnpj: string;
   active: boolean;
+  clientsCount: number;
   contractsCount: number;
   employeesCount: number;
   serviceOrdersCount: number;
@@ -36,7 +37,9 @@ export interface EmployeeRow {
   id: string;
   contractId: string | null;
   contractCode: string | null;
+  clientId: string | null;
   clientName: string | null;
+  workstation: string | null;
   name: string;
   roleTitle: string;
   schedule: string;
@@ -52,7 +55,12 @@ export interface EPIDeliveryRow {
   caNumber: string;
   deliveredAt: string;
   expiresAt: string;
+  expiresAtIso: string;
+  daysUntilExpiry: number;
   receiptSigned: boolean;
+  signedAt: string | null;
+  signedBy: string;
+  evidenceCode: string;
 }
 
 export interface InventoryItemRow {
@@ -69,11 +77,15 @@ export interface InventoryItemRow {
 
 export interface InventoryMovementRow {
   id: string;
+  itemId: string;
   itemSku: string;
   itemDescription: string;
   employeeName: string | null;
+  serviceOrderCode: string | null;
   movementType: "Entrada" | "Saída" | "Cautela" | "Devolução";
+  previousQuantity: number;
   quantity: number;
+  newQuantity: number;
   unit: string;
   notes: string;
   createdAt: string;
@@ -84,22 +96,30 @@ export interface ServiceOrderRow {
   code: string;
   clientId: string;
   clientName: string;
+  contractId: string | null;
+  contractCode: string | null;
+  workstation: string | null;
   employeeId: string | null;
   employeeName: string | null;
   description: string;
   priority: "Normal" | "Alta" | "Urgente";
   status: "Agendada" | "Em Execução" | "Concluída";
+  scheduledFor: string | null;
+  createdAt: string;
 }
 
 export interface FinancialEntryRow {
   id: string;
   contractId: string | null;
   contractCode: string | null;
+  clientName: string | null;
   entryType: "Receita" | "Despesa";
   description: string;
   amount: number;
   dueDate: string;
+  competence: string;
   reconciliationStatus: "Pendente" | "Conciliado";
+  updatedAt: string;
 }
 
 export async function listCompanies(): Promise<CompanyRow[]> {
@@ -108,11 +128,13 @@ export async function listCompanies(): Promise<CompanyRow[]> {
     name: string;
     cnpj: string;
     active: boolean;
+    clients_count: string;
     contracts_count: string;
     employees_count: string;
     os_count: string;
   }>(
     `SELECT t.id, t.name, t.cnpj, t.active,
+            (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
             (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
             (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
             (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
@@ -124,6 +146,7 @@ export async function listCompanies(): Promise<CompanyRow[]> {
     name: r.name,
     cnpj: r.cnpj,
     active: r.active,
+    clientsCount: Number(r.clients_count),
     contractsCount: Number(r.contracts_count),
     employeesCount: Number(r.employees_count),
     serviceOrdersCount: Number(r.os_count),
@@ -135,7 +158,7 @@ export async function listClients(tenantId: string): Promise<ClientRow[]> {
     `SELECT id, name, cnpj, contact
        FROM clients
       WHERE tenant_id = $1
-      ORDER BY name ASC`,
+      ORDER BY created_at DESC, name ASC`,
     [tenantId],
   );
   return rows;
@@ -183,26 +206,30 @@ export async function listEmployees(tenantId: string): Promise<EmployeeRow[]> {
     id: string;
     contract_id: string | null;
     contract_code: string | null;
+    client_id: string | null;
     client_name: string | null;
+    workstation: string | null;
     name: string;
     role_title: string;
     schedule: string;
     status: string;
   }>(
-    `SELECT e.id, e.contract_id, c.code AS contract_code, cl.name AS client_name,
-            e.name, e.role_title, e.schedule, e.status
+    `SELECT e.id, e.contract_id, c.code AS contract_code, c.client_id, cl.name AS client_name,
+            c.workstation, e.name, e.role_title, e.schedule, e.status
        FROM employees e
        LEFT JOIN contracts c ON c.id = e.contract_id
        LEFT JOIN clients cl ON cl.id = c.client_id
       WHERE e.tenant_id = $1
-      ORDER BY e.name ASC`,
+      ORDER BY e.created_at DESC, e.name ASC`,
     [tenantId],
   );
   return rows.map((r) => ({
     id: r.id,
     contractId: r.contract_id,
     contractCode: r.contract_code,
+    clientId: r.client_id,
     clientName: r.client_name,
+    workstation: r.workstation,
     name: r.name,
     roleTitle: r.role_title,
     schedule: r.schedule,
@@ -220,13 +247,23 @@ export async function listEPIDeliveries(tenantId: string): Promise<EPIDeliveryRo
     ca_number: string;
     delivered_at: string;
     expires_at: string;
+    expires_at_iso: string;
+    days_until_expiry: number;
     receipt_signed: boolean;
+    signed_at: string | null;
+    signed_by: string;
+    evidence_code: string;
   }>(
     `SELECT d.id, d.employee_id, e.name AS employee_name, e.role_title AS employee_role,
             d.epi_name, d.ca_number,
             to_char(d.delivered_at, 'DD/MM/YYYY') AS delivered_at,
             to_char(d.expires_at, 'DD/MM/YYYY') AS expires_at,
-            d.receipt_signed
+            to_char(d.expires_at, 'YYYY-MM-DD') AS expires_at_iso,
+            (d.expires_at - CURRENT_DATE)::int AS days_until_expiry,
+            d.receipt_signed,
+            CASE WHEN d.signed_at IS NOT NULL THEN to_char(d.signed_at, 'DD/MM/YYYY HH24:MI') ELSE NULL END AS signed_at,
+            COALESCE(d.signed_by, '') AS signed_by,
+            COALESCE(d.evidence_code, '') AS evidence_code
        FROM epi_deliveries d
        JOIN employees e ON e.id = d.employee_id
       WHERE d.tenant_id = $1
@@ -242,7 +279,12 @@ export async function listEPIDeliveries(tenantId: string): Promise<EPIDeliveryRo
     caNumber: r.ca_number,
     deliveredAt: r.delivered_at,
     expiresAt: r.expires_at,
+    expiresAtIso: r.expires_at_iso,
+    daysUntilExpiry: Number(r.days_until_expiry),
     receiptSigned: r.receipt_signed,
+    signedAt: r.signed_at,
+    signedBy: r.signed_by,
+    evidenceCode: r.evidence_code,
   }));
 }
 
@@ -279,33 +321,48 @@ export async function listInventoryItems(tenantId: string): Promise<InventoryIte
 export async function listInventoryMovements(tenantId: string): Promise<InventoryMovementRow[]> {
   const { rows } = await getPool().query<{
     id: string;
+    item_id: string;
     item_sku: string;
     item_description: string;
     employee_name: string | null;
+    service_order_code: string | null;
     movement_type: "Entrada" | "Saída" | "Cautela" | "Devolução";
+    previous_quantity: number;
     quantity: number;
+    new_quantity: number;
     unit: string;
     notes: string;
     created_at: string;
   }>(
-    `SELECT m.id, i.sku AS item_sku, i.description AS item_description, i.unit,
-            e.name AS employee_name, m.movement_type, m.quantity, m.notes,
+    `SELECT m.id, m.item_id, i.sku AS item_sku, i.description AS item_description, i.unit,
+            e.name AS employee_name,
+            o.code AS service_order_code,
+            m.movement_type,
+            COALESCE(m.previous_quantity, 0) AS previous_quantity,
+            m.quantity,
+            COALESCE(m.new_quantity, i.quantity) AS new_quantity,
+            m.notes,
             to_char(m.created_at, 'DD/MM/YYYY HH24:MI') AS created_at
        FROM inventory_movements m
        JOIN inventory_items i ON i.id = m.item_id
        LEFT JOIN employees e ON e.id = m.employee_id
+       LEFT JOIN service_orders o ON o.id = m.service_order_id
       WHERE m.tenant_id = $1
       ORDER BY m.created_at DESC
-      LIMIT 30`,
+      LIMIT 40`,
     [tenantId],
   );
   return rows.map((r) => ({
     id: r.id,
+    itemId: r.item_id,
     itemSku: r.item_sku,
     itemDescription: r.item_description,
     employeeName: r.employee_name,
+    serviceOrderCode: r.service_order_code,
     movementType: r.movement_type,
+    previousQuantity: Number(r.previous_quantity),
     quantity: r.quantity,
+    newQuantity: Number(r.new_quantity),
     unit: r.unit,
     notes: r.notes,
     createdAt: r.created_at,
@@ -318,20 +375,29 @@ export async function listServiceOrders(tenantId: string): Promise<ServiceOrderR
     code: string;
     client_id: string;
     client_name: string;
+    contract_id: string | null;
+    contract_code: string | null;
+    workstation: string | null;
     employee_id: string | null;
     employee_name: string | null;
     description: string;
     priority: "Normal" | "Alta" | "Urgente";
     status: "Agendada" | "Em Execução" | "Concluída";
+    scheduled_for: string | null;
+    created_at: string;
   }>(
     `SELECT o.id, o.code, o.client_id, cl.name AS client_name,
+            o.contract_id, c.code AS contract_code, c.workstation,
             o.employee_id, e.name AS employee_name,
-            o.description, o.priority, o.status
+            o.description, o.priority, o.status,
+            CASE WHEN o.scheduled_for IS NOT NULL THEN to_char(o.scheduled_for, 'DD/MM/YYYY HH24:MI') ELSE NULL END AS scheduled_for,
+            to_char(o.created_at, 'DD/MM/YYYY') AS created_at
        FROM service_orders o
        JOIN clients cl ON cl.id = o.client_id
+       LEFT JOIN contracts c ON c.id = o.contract_id
        LEFT JOIN employees e ON e.id = o.employee_id
       WHERE o.tenant_id = $1
-      ORDER BY o.code ASC, o.created_at DESC`,
+      ORDER BY o.created_at DESC, o.code ASC`,
     [tenantId],
   );
   return rows.map((r) => ({
@@ -339,11 +405,16 @@ export async function listServiceOrders(tenantId: string): Promise<ServiceOrderR
     code: r.code,
     clientId: r.client_id,
     clientName: r.client_name,
+    contractId: r.contract_id,
+    contractCode: r.contract_code,
+    workstation: r.workstation,
     employeeId: r.employee_id,
     employeeName: r.employee_name,
     description: r.description,
     priority: r.priority,
     status: r.status,
+    scheduledFor: r.scheduled_for,
+    createdAt: r.created_at,
   }));
 }
 
@@ -352,18 +423,24 @@ export async function listFinancialEntries(tenantId: string): Promise<FinancialE
     id: string;
     contract_id: string | null;
     contract_code: string | null;
+    client_name: string | null;
     entry_type: "Receita" | "Despesa";
     description: string;
     amount: string;
     due_date: string;
+    competence: string;
     reconciliation_status: "Pendente" | "Conciliado";
+    updated_at: string;
   }>(
-    `SELECT f.id, f.contract_id, c.code AS contract_code,
+    `SELECT f.id, f.contract_id, c.code AS contract_code, cl.name AS client_name,
             f.entry_type, f.description, f.amount,
             to_char(f.due_date, 'DD/MM/YYYY') AS due_date,
-            f.reconciliation_status
+            to_char(f.due_date, 'MM/YYYY') AS competence,
+            f.reconciliation_status,
+            to_char(COALESCE(f.updated_at, f.created_at), 'DD/MM/YYYY HH24:MI') AS updated_at
        FROM financial_entries f
        LEFT JOIN contracts c ON c.id = f.contract_id
+       LEFT JOIN clients cl ON cl.id = c.client_id
       WHERE f.tenant_id = $1
       ORDER BY f.due_date ASC, f.created_at DESC`,
     [tenantId],
@@ -372,10 +449,13 @@ export async function listFinancialEntries(tenantId: string): Promise<FinancialE
     id: r.id,
     contractId: r.contract_id,
     contractCode: r.contract_code,
+    clientName: r.client_name,
     entryType: r.entry_type,
     description: r.description,
     amount: Number(r.amount),
     dueDate: r.due_date,
+    competence: r.competence,
     reconciliationStatus: r.reconciliation_status,
+    updatedAt: r.updated_at,
   }));
 }

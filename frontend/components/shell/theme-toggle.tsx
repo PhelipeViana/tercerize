@@ -17,12 +17,12 @@ export function ThemeToggle() {
       document.documentElement.classList.add("dark");
       try {
         localStorage.setItem("tercerize_theme", "dark");
-      } catch {}
+      } catch { }
     } else {
       document.documentElement.classList.remove("dark");
       try {
         localStorage.setItem("tercerize_theme", "light");
-      } catch {}
+      } catch { }
     }
   }
 

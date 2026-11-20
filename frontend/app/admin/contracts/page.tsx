@@ -1,17 +1,27 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
 import { ContractsView } from "@/components/modules/contracts-view";
 import { AdminShell } from "@/components/shell/admin-shell";
 import { requireSession } from "@/lib/auth/dal";
 import { listClients, listCompanies, listContracts } from "@/lib/operations/repository";
 
-export default async function ContractsPage() {
+interface PageProps {
+  searchParams: Promise<{
+    tab?: string;
+    welcome?: string;
+    createdContractId?: string;
+    createdCode?: string;
+  }>;
+}
+
+export default async function ContractsPage({ searchParams }: PageProps) {
   const session = await requireSession();
+  const params = await searchParams;
   const [companies, contracts, clients] = await Promise.all([
     listCompanies(),
     listContracts(session.tenant.id),
     listClients(session.tenant.id),
   ]);
+
+  const initialTab = params.tab === "clientes" ? "clientes" : "contratos";
 
   return (
     <AdminShell
@@ -19,18 +29,17 @@ export default async function ContractsPage() {
       companies={companies}
       current="contracts"
       title="Clientes e contratos"
-      subtitle="Acompanhe contratos, clientes e postos alocados."
-      action={
-        <Link
-          href="/admin/contracts/create"
-          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-sm"
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          <span>Novo contrato</span>
-        </Link>
-      }
+      subtitle="Gerencie clientes tomadores, contratos ativos, postos de trabalho e vigências."
     >
-      <ContractsView contracts={contracts} clients={clients} />
+      <ContractsView
+        tenantName={session.tenant.name}
+        contracts={contracts}
+        clients={clients}
+        initialTab={initialTab}
+        welcome={params.welcome === "1"}
+        createdContractId={params.createdContractId}
+        createdCode={params.createdCode}
+      />
     </AdminShell>
   );
 }

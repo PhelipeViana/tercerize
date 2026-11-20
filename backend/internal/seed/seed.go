@@ -23,7 +23,7 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO tenants (name, cnpj, active)
-			 VALUES ('Tercerize Serviços & Facilities MT Ltda', '14.520.890/0001-45', true)
+			 VALUES ('Tercerize Serviços & Facilities MT Ltda', '14.520.890/0001-77', true)
 			 RETURNING id`).Scan(&tenant1ID); err != nil {
 			return fmt.Errorf("seed tenant 1: %w", err)
 		}
@@ -31,7 +31,7 @@ func Ensure(ctx context.Context, pool *pgxpool.Pool) error {
 		var tenant2ID string
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO tenants (name, cnpj, active)
-			 VALUES ('Alfa Engenharia & Manutenção Predial Ltda', '28.910.440/0001-12', true)
+			 VALUES ('Alfa Engenharia & Manutenção Predial Ltda', '28.910.440/0001-03', true)
 			 RETURNING id`).Scan(&tenant2ID); err != nil {
 			return fmt.Errorf("seed tenant 2: %w", err)
 		}
@@ -67,13 +67,13 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var client1ID, client2ID string
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO clients (tenant_id, name, cnpj, contact)
-		 VALUES ($1, 'Comércio e Serviços Mato Grosso Ltda', '12.345.678/0001-90', '(65) 3321-4050 • compras@comerciomt.com.br')
+		 VALUES ($1, 'Comércio e Serviços Mato Grosso Ltda', '12.345.678/0001-95', '(65) 3321-4050 • compras@comerciomt.com.br')
 		 RETURNING id`, tenantID).Scan(&client1ID); err != nil {
 		return err
 	}
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO clients (tenant_id, name, cnpj, contact)
-		 VALUES ($1, 'Supermercado Bom Preço', '23.456.789/0001-11', '(65) 3624-8890 • ti@superbompreco.com.br')
+		 VALUES ($1, 'Supermercado Bom Preço', '23.456.789/0001-95', '(65) 3624-8890 • ti@superbompreco.com.br')
 		 RETURNING id`, tenantID).Scan(&client2ID); err != nil {
 		return err
 	}
@@ -112,15 +112,15 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 
 	// EPIs
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO epi_deliveries (tenant_id, employee_id, epi_name, ca_number, delivered_at, expires_at, receipt_signed)
+		`INSERT INTO epi_deliveries (tenant_id, employee_id, epi_name, ca_number, delivered_at, expires_at, receipt_signed, signed_at, signed_by, evidence_code)
 		 VALUES
-		   ($1, $2, 'Capacete de Segurança Classe B c/ Jugular', 'CA-31469', CURRENT_DATE - INTERVAL '30 days', CURRENT_DATE + INTERVAL '335 days', true),
-		   ($1, $3, 'Luva Isolante de Proteção e Vaqueta', 'CA-19842', CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '165 days', true)`,
+		   ($1, $2, 'Capacete de Segurança Classe B c/ Jugular', 'CA-31469', CURRENT_DATE - INTERVAL '30 days', CURRENT_DATE + INTERVAL '335 days', true, now() - INTERVAL '30 days', 'Carlos Silva', 'TRM-31469A'),
+		   ($1, $3, 'Luva Isolante de Proteção e Vaqueta', 'CA-19842', CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '165 days', false, NULL, '', '')`,
 		tenantID, emp1ID, emp2ID); err != nil {
 		return err
 	}
 
-	// Inventário e Ativos (Exatamente como na Tela 3 do PDF)
+	// Inventário e Ativos
 	var item1ID, item4ID string
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO inventory_items (tenant_id, sku, description, category, quantity, unit, unit_value, min_quantity)
@@ -145,21 +145,21 @@ func seedTenant1Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 
 	// Movimentação inicial e cautela
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO inventory_movements (tenant_id, item_id, employee_id, movement_type, quantity, notes)
+		`INSERT INTO inventory_movements (tenant_id, item_id, employee_id, movement_type, previous_quantity, quantity, new_quantity, notes)
 		 VALUES
-		   ($1, $2, $3, 'Saída', 1, 'Aplicado na revisão de cabeamento da OS #OS-104'),
-		   ($1, $4, $3, 'Cautela', 1, 'Termo de cautela de ferramenta assinado para atendimento em campo')`,
+		   ($1, $2, $3, 'Saída', 6, 1, 5, 'Aplicado na revisão de cabeamento da OS #OS-104'),
+		   ($1, $4, $3, 'Cautela', 4, 1, 3, 'Termo de cautela de ferramenta assinado para atendimento em campo')`,
 		tenantID, item1ID, emp1ID, item4ID); err != nil {
 		return err
 	}
 
-	// Ordens de Serviço (Exatamente como na Tela 2 do PDF)
+	// Ordens de Serviço
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO service_orders (tenant_id, client_id, employee_id, code, description, priority, status)
+		`INSERT INTO service_orders (tenant_id, client_id, contract_id, employee_id, code, description, priority, status, scheduled_for)
 		 VALUES
-		   ($1, $2, $4, '#OS-104', 'Revisão de cabeamento estruturado e switches', 'Alta', 'Em Execução'),
-		   ($1, $3, $5, '#OS-105', 'Atendimento corretivo em ponto de rede', 'Normal', 'Agendada')`,
-		tenantID, client1ID, client2ID, emp1ID, emp2ID); err != nil {
+		   ($1, $2, $4, $6, '#OS-104', 'Revisão de cabeamento estruturado e switches', 'Alta', 'Em Execução', NULL),
+		   ($1, $3, $5, $7, '#OS-105', 'Atendimento corretivo em ponto de rede', 'Normal', 'Agendada', now() + INTERVAL '1 day')`,
+		tenantID, client1ID, client2ID, contract1ID, contract2ID, emp1ID, emp2ID); err != nil {
 		return err
 	}
 
@@ -200,9 +200,9 @@ func seedTenant2Data(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO service_orders (tenant_id, client_id, employee_id, code, description, priority, status)
-		 VALUES ($1, $2, $3, '#OS-201', 'Inspeção termográfica no quadro geral de baixa tensão', 'Urgente', 'Em Execução')`,
-		tenantID, clientID, empID); err != nil {
+		`INSERT INTO service_orders (tenant_id, client_id, contract_id, employee_id, code, description, priority, status)
+		 VALUES ($1, $2, $3, $4, '#OS-201', 'Inspeção termográfica no quadro geral de baixa tensão', 'Urgente', 'Em Execução')`,
+		tenantID, clientID, contractID, empID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
