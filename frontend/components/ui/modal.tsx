@@ -42,6 +42,8 @@ export function Modal({
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -50,7 +52,7 @@ export function Modal({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Mover foco inicial para o primeiro controle interativo ou para o diálogo
+    // Mover foco inicial apenas na abertura do modal (open: false -> true)
     const raf = window.requestAnimationFrame(() => {
       const panel = panelRef.current;
       if (!panel) return;
@@ -67,7 +69,7 @@ export function Modal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -96,7 +98,7 @@ export function Modal({
       document.body.style.overflow = prevOverflow;
       previousFocusRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open || typeof document === "undefined") {
     return null;
