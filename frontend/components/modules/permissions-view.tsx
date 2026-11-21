@@ -8,6 +8,7 @@ import {
   Clock,
   KeyRound,
   Loader2,
+  Lock,
   Mail,
   Pencil,
   Plus,
@@ -34,6 +35,7 @@ interface Props {
   tenantName: string;
   ownerName: string;
   ownerEmail: string;
+  currentUserId: string;
   isMaster: boolean;
   roles: TenantRoleRow[];
   members: TenantMemberRow[];
@@ -52,6 +54,7 @@ export function PermissionsView({
   tenantName,
   ownerName,
   ownerEmail,
+  currentUserId,
   isMaster,
   roles,
   members,
@@ -69,7 +72,8 @@ export function PermissionsView({
   const [resendState, resendAction, resendPending] = useActionState(resendMemberLinkAction, undefined);
   const [roleState, saveRoleAction, rolePending] = useActionState(saveRoleStateAction, undefined);
 
-  const assignableRoles = roles.filter((r) => isMaster || r.key !== "owner");
+  // A função Dono da empresa é única e definida exclusivamente pelo Master em Gestão de empresas
+  const assignableRoles = roles.filter((r) => r.key !== "owner");
 
   useEffect(() => {
     if (memberState?.ok && memberState.message) {
@@ -256,12 +260,23 @@ export function PermissionsView({
               </thead>
               <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
                 {members.map((m) => {
-                  const isOwnerRow = m.roleKey === "owner";
+                  const isOwnerRow =
+                    m.roleKey === "owner" ||
+                    (Boolean(ownerEmail) && m.userEmail.toLowerCase() === ownerEmail.toLowerCase());
+                  const isSelf = m.userId === currentUserId;
+                  const roleLocked = isOwnerRow || isSelf;
                   const accessed = m.loginCount > 0 || m.totpConfigured;
                   return (
                     <tr key={m.membershipId} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                       <td className="px-4 py-4">
-                        <span className="block font-bold text-slate-900 dark:text-white">{m.userName}</span>
+                        <span className="block font-bold text-slate-900 dark:text-white">
+                          {m.userName}
+                          {isSelf && (
+                            <span className="ml-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                              Você
+                            </span>
+                          )}
+                        </span>
                         <span className="block font-mono text-xs text-slate-500 dark:text-slate-400">
                           {m.userEmail}
                         </span>
@@ -273,10 +288,18 @@ export function PermissionsView({
                       </td>
 
                       <td className="px-4 py-4">
-                        {isOwnerRow && !isMaster ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 dark:bg-blue-950/80 px-3 py-1 text-xs font-bold text-[#3B68F7] dark:text-blue-300">
-                            {m.roleName}
-                          </span>
+                        {roleLocked ? (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 dark:bg-blue-950/80 px-3 py-1 text-xs font-bold text-[#3B68F7] dark:text-blue-300">
+                              <Lock className="size-3" aria-hidden="true" />
+                              <span>{m.roleName}</span>
+                            </span>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                              {isOwnerRow
+                                ? "Titular fixo · gerido pelo Master"
+                                : "Você não pode alterar a própria função"}
+                            </p>
+                          </div>
                         ) : (
                           <form action={updateMemberRoleAction} className="inline-flex items-center gap-1.5">
                             <input type="hidden" name="membershipId" value={m.membershipId} />
@@ -287,13 +310,11 @@ export function PermissionsView({
                               aria-label={`Alterar função de ${m.userName}`}
                               className="min-h-9 rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-800 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
                             >
-                              {roles
-                                .filter((r) => isMaster || r.key !== "owner" || r.id === m.roleId)
-                                .map((r) => (
-                                  <option key={r.id} value={r.id}>
-                                    {r.name}
-                                  </option>
-                                ))}
+                              {assignableRoles.map((r) => (
+                                <option key={r.id} value={r.id}>
+                                  {r.name}
+                                </option>
+                              ))}
                             </select>
                           </form>
                         )}
@@ -342,7 +363,7 @@ export function PermissionsView({
                             </form>
                           )}
 
-                          {!m.isMaster && (isMaster || !isOwnerRow) && (
+                          {!m.isMaster && !isSelf && (isMaster || !isOwnerRow) && (
                             m.blocked ? (
                               <form action={toggleUserBlockAction}>
                                 <input type="hidden" name="userId" value={m.userId} />
@@ -366,7 +387,7 @@ export function PermissionsView({
                             )
                           )}
 
-                          {!isOwnerRow && (
+                          {!isOwnerRow && !isSelf && (
                             <button
                               type="button"
                               onClick={() => setConfirmRemoveMember(m)}

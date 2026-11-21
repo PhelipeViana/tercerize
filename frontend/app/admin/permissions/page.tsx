@@ -32,6 +32,7 @@ export default async function PermissionsPage() {
         tenantName={session.tenant.name}
         ownerName={session.tenant.ownerName}
         ownerEmail={session.tenant.ownerEmail}
+        currentUserId={session.user.id}
         isMaster={session.user.isMaster}
         roles={roles}
         members={members}

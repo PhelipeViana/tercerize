@@ -11,15 +11,20 @@ import {
   BarChart3,
   Building2,
   Check,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
   Copy,
   Crown,
-  Download,
+  FileDown,
+  FileSpreadsheet,
   FileText,
   History,
   Loader2,
   Lock,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Printer,
   RotateCcw,
@@ -37,6 +42,7 @@ import { ConfirmModal, Modal } from "@/components/ui/modal";
 import type { AIConversationRow, AIMessageRow } from "@/lib/ai/repository";
 import type { AIPlanKey } from "@/lib/auth/repository";
 import { cn } from "@/lib/utils";
+import { exportReportToExcel, exportReportToPDF } from "@/lib/utils/report-export";
 
 export interface AllowedModuleInfo {
   key: "contracts" | "service_orders" | "employees" | "epis" | "inventory" | "finance";
@@ -135,16 +141,12 @@ const LOADING_PHRASES = [
   "Estruturando resposta e relatório…",
 ];
 
-function slugify(value: string): string {
-  return (
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "relatorio"
-  );
+function detectRequestedExport(userPrompt: string): { excel: boolean; pdf: boolean } {
+  const lower = userPrompt.toLowerCase();
+  return {
+    excel: /\b(excel|xlsx|planilha|csv)\b/.test(lower),
+    pdf: /\b(pdf)\b/.test(lower),
+  };
 }
 
 function nowFormattedBR(): string {
@@ -462,12 +464,37 @@ export function AssistantView({
   const [loadingPhraseIdx, setLoadingPhraseIdx] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [contextOpen, setContextOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AIConversationRow | null>(null);
   const [printMessage, setPrintMessage] = useState<AIMessageRow | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Restaura preferência do painel lateral retrátil no desktop
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("tercerize_ai_sidebar_open");
+      if (saved === "false") setSidebarOpen(false);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("tercerize_ai_sidebar_open", String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   // Sync server-fetched props when navigating between conversations (?c=...)
   useEffect(() => {
@@ -623,26 +650,40 @@ export function AssistantView({
     }
   }
 
-  function handleDownloadMarkdown(msg: AIMessageRow) {
-    const header = [
-      `# Relatório — ${tenantName}`,
-      `CNPJ: ${tenantCnpj} | Emitido em: ${msg.createdAt || nowFormattedBR()}`,
-      "",
-      "---",
-      "",
-    ].join("\n");
-    const blob = new Blob([header + msg.content + "\n"], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `relatorio-${slugify(tenantName)}-${dateStamp}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  async function handleExportExcel(msg: AIMessageRow) {
+    const key = `xlsx-${msg.id}`;
+    setExportingKey(key);
+    try {
+      await exportReportToExcel({
+        content: msg.content,
+        tenantName,
+        tenantCnpj,
+        roleName,
+        emittedAt: msg.createdAt || nowFormattedBR(),
+      });
+    } catch {
+      setErrorMsg("Não foi possível gerar o arquivo Excel (.xlsx). Tente novamente.");
+    } finally {
+      setExportingKey(null);
+    }
+  }
+
+  async function handleExportPDF(msg: AIMessageRow) {
+    const key = `pdf-${msg.id}`;
+    setExportingKey(key);
+    try {
+      await exportReportToPDF({
+        content: msg.content,
+        tenantName,
+        tenantCnpj,
+        roleName,
+        emittedAt: msg.createdAt || nowFormattedBR(),
+      });
+    } catch {
+      setErrorMsg("Não foi possível gerar o arquivo PDF. Tente novamente.");
+    } finally {
+      setExportingKey(null);
+    }
   }
 
   const renderConversationList = () => (
@@ -725,86 +766,133 @@ export function AssistantView({
   return (
     <>
       <div className="flex h-[calc(100dvh-108px)] sm:h-[calc(100dvh-124px)] min-h-[540px] gap-4 overflow-hidden">
-        {/* Desktop Left Sidebar: Conversation History */}
-        <aside
-          aria-label="Histórico de conversas do Assistente IA"
-          className="hidden lg:flex w-[272px] shrink-0 flex-col rounded-[28px] solid-surface p-4 overflow-hidden"
-        >
-          {renderConversationList()}
-        </aside>
+        {/* Desktop Left Sidebar: Conversation History (Retrátil) */}
+        {sidebarOpen && (
+          <aside
+            aria-label="Histórico de conversas do Assistente IA"
+            className="hidden lg:flex w-[272px] shrink-0 flex-col rounded-[28px] solid-surface p-4 overflow-hidden"
+          >
+            {renderConversationList()}
+          </aside>
+        )}
 
         {/* Main Chat & Reports Canvas */}
         <section
           aria-label="Área de chat e geração de relatórios"
           className="flex flex-1 min-w-0 flex-col rounded-[28px] solid-surface overflow-hidden"
         >
-          {/* Transparent Scope Header */}
-          <div className="shrink-0 border-b border-slate-200/80 dark:border-white/10 px-4 py-3.5 sm:px-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          {/* Transparent Scope Header com Lista de Contexto Retrátil */}
+          <div className="shrink-0 border-b border-slate-200/80 dark:border-white/10 px-4 py-3 sm:px-6 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalOpen(true)}
+                  aria-label="Abrir histórico de conversas"
+                  className="lg:hidden min-h-11 min-w-11 inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                >
+                  <History className="size-4.5" aria-hidden="true" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  aria-expanded={sidebarOpen}
+                  aria-label={sidebarOpen ? "Recolher painel de histórico" : "Expandir painel de histórico"}
+                  title={sidebarOpen ? "Recolher histórico" : "Expandir histórico"}
+                  className="hidden lg:inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                >
+                  {sidebarOpen ? (
+                    <PanelLeftClose className="size-4" aria-hidden="true" />
+                  ) : (
+                    <PanelLeftOpen className="size-4" aria-hidden="true" />
+                  )}
+                </button>
+
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3B68F7] to-[#5346E8] text-white shadow-xs">
+                  <Sparkles className="size-5" aria-hidden="true" />
+                </div>
+
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
+                      Assistente IA & Relatórios
+                    </h1>
+                    {hasOpenrouterToken && (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold",
+                          planKey === "premium"
+                            ? "bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300"
+                            : planKey === "standard"
+                              ? "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300"
+                              : "bg-emerald-100 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-300",
+                        )}
+                      >
+                        {planKey === "premium" ? (
+                          <Crown className="size-3" aria-hidden="true" />
+                        ) : planKey === "standard" ? (
+                          <Zap className="size-3" aria-hidden="true" />
+                        ) : (
+                          <Sparkles className="size-3" aria-hidden="true" />
+                        )}
+                        <span>IA {formatPlanLabel(planKey)}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs text-slate-600 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200">
+                      <Building2 className="size-3 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
+                      {tenantName}
+                    </span>
+                    <span className="font-mono text-[11px]">{tenantCnpj}</span>
+                    <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
+                      <Lock className="size-3" aria-hidden="true" />
+                      Exclusivo de negócios ({roleName})
+                    </span>
+                  </p>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setHistoryModalOpen(true)}
-                aria-label="Abrir histórico de conversas"
-                className="lg:hidden min-h-11 min-w-11 inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                onClick={() => setContextOpen((v) => !v)}
+                aria-expanded={contextOpen}
+                aria-controls="assistant-context-panel"
+                className="min-h-10 inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
               >
-                <History className="size-4.5" aria-hidden="true" />
+                <span>Contexto ({allowedModules.length})</span>
+                {contextOpen ? (
+                  <ChevronUp className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="size-3.5" aria-hidden="true" />
+                )}
               </button>
+            </div>
 
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3B68F7] to-[#5346E8] text-white shadow-xs">
-                <Sparkles className="size-5" aria-hidden="true" />
-              </div>
-
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
-                    Assistente IA & Relatórios
-                  </h1>
-                  {hasOpenrouterToken && (
+            {contextOpen && (
+              <div
+                id="assistant-context-panel"
+                className="rounded-2xl border border-slate-200/80 dark:border-white/10 bg-slate-50/80 dark:bg-slate-800/45 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mr-1">
+                    Módulos lidos:
+                  </span>
+                  {allowedModules.map((mod) => (
                     <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold",
-                        planKey === "premium"
-                          ? "bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300"
-                          : planKey === "standard"
-                            ? "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300"
-                            : "bg-emerald-100 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-300",
-                      )}
+                      key={mod.key}
+                      className="inline-flex items-center rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300"
                     >
-                      {planKey === "premium" ? (
-                        <Crown className="size-3" aria-hidden="true" />
-                      ) : planKey === "standard" ? (
-                        <Zap className="size-3" aria-hidden="true" />
-                      ) : (
-                        <Sparkles className="size-3" aria-hidden="true" />
-                      )}
-                      <span>IA {formatPlanLabel(planKey)}</span>
+                      {mod.label}
                     </span>
-                  )}
+                  ))}
                 </div>
-                <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs text-slate-600 dark:text-slate-400">
-                  <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200">
-                    <Building2 className="size-3 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
-                    {tenantName}
-                  </span>
-                  <span className="font-mono text-[11px]">{tenantCnpj}</span>
-                  <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
-                    <Lock className="size-3" aria-hidden="true" />
-                    Dados isolados ({roleName})
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {allowedModules.map((mod) => (
-                <span
-                  key={mod.key}
-                  className="inline-flex items-center rounded-full border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300"
-                >
-                  {mod.label}
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Exportação disponível em Excel (.xlsx) e PDF
                 </span>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
 
           {creditNotice && (
@@ -908,19 +996,31 @@ export function AssistantView({
                   </div>
                 ) : (
                   <div className="mx-auto max-w-4xl space-y-5">
-                    {messages.map((msg) =>
-                      msg.role === "user" ? (
-                        <div key={msg.id} className="flex justify-end">
-                          <div className="max-w-[88%] sm:max-w-[78%] rounded-[22px] rounded-tr-md bg-gradient-to-r from-[#3B68F7] to-[#5346E8] px-4 py-3 text-white shadow-sm space-y-1">
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                              {msg.content}
-                            </p>
-                            <p className="text-[10px] text-blue-100/90 text-right tabular-nums">
-                              {msg.createdAt}
-                            </p>
+                    {messages.map((msg, msgIdx) => {
+                      if (msg.role === "user") {
+                        return (
+                          <div key={msg.id} className="flex justify-end">
+                            <div className="max-w-[88%] sm:max-w-[78%] rounded-[22px] rounded-tr-md bg-gradient-to-r from-[#3B68F7] to-[#5346E8] px-4 py-3 text-white shadow-sm space-y-1">
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                                {msg.content}
+                              </p>
+                              <p className="text-[10px] text-blue-100/90 text-right tabular-nums">
+                                {msg.createdAt}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
+                        );
+                      }
+
+                      const prevUserMsg =
+                        msgIdx > 0 && messages[msgIdx - 1]?.role === "user"
+                          ? messages[msgIdx - 1].content
+                          : "";
+                      const requested = detectRequestedExport(prevUserMsg);
+                      const hasTable = /\|.*\|/.test(msg.content);
+                      const showFooterExport = requested.excel || requested.pdf || hasTable;
+
+                      return (
                         <article
                           key={msg.id}
                           className="rounded-[24px] border border-slate-200/90 dark:border-white/12 bg-slate-50/70 dark:bg-slate-800/45 p-4 sm:p-6 shadow-2xs space-y-4"
@@ -939,6 +1039,36 @@ export function AssistantView({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={exportingKey === `xlsx-${msg.id}`}
+                                onClick={() => void handleExportExcel(msg)}
+                                aria-label="Baixar relatório em Excel (.xlsx)"
+                                className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/90 dark:bg-emerald-950/45 px-3 py-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/75 transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                              >
+                                {exportingKey === `xlsx-${msg.id}` ? (
+                                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <FileSpreadsheet className="size-3.5" aria-hidden="true" />
+                                )}
+                                <span>Excel (.xlsx)</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={exportingKey === `pdf-${msg.id}`}
+                                onClick={() => void handleExportPDF(msg)}
+                                aria-label="Baixar relatório em PDF"
+                                className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-blue-200 dark:border-blue-700/60 bg-blue-50/90 dark:bg-blue-950/45 px-3 py-1.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/75 transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                              >
+                                {exportingKey === `pdf-${msg.id}` ? (
+                                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <FileDown className="size-3.5" aria-hidden="true" />
+                                )}
+                                <span>Baixar PDF</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={() => void handleCopy(msg)}
@@ -961,29 +1091,67 @@ export function AssistantView({
                               <button
                                 type="button"
                                 onClick={() => setPrintMessage(msg)}
-                                aria-label="Imprimir ou salvar relatório em PDF"
+                                aria-label="Imprimir relatório"
                                 className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
                               >
                                 <Printer className="size-3.5" aria-hidden="true" />
-                                <span>Imprimir / PDF</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadMarkdown(msg)}
-                                aria-label="Baixar relatório em arquivo Markdown"
-                                className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                              >
-                                <Download className="size-3.5" aria-hidden="true" />
-                                <span>Baixar .md</span>
+                                <span>Imprimir</span>
                               </button>
                             </div>
                           </div>
 
                           <MarkdownReport content={msg.content} />
+
+                          {showFooterExport && (
+                            <div className="pt-3 border-t border-slate-200/70 dark:border-white/10 flex flex-wrap items-center justify-between gap-2.5">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                {requested.excel || requested.pdf
+                                  ? "Arquivo do relatório pronto para download:"
+                                  : "Exportar este relatório:"}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={exportingKey === `xlsx-${msg.id}`}
+                                  onClick={() => void handleExportExcel(msg)}
+                                  className={cn(
+                                    "min-h-10 inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600",
+                                    requested.excel
+                                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                      : "border border-emerald-300 dark:border-emerald-700/70 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50",
+                                  )}
+                                >
+                                  {exportingKey === `xlsx-${msg.id}` ? (
+                                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <FileSpreadsheet className="size-3.5" aria-hidden="true" />
+                                  )}
+                                  <span>Baixar Excel (.xlsx)</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={exportingKey === `pdf-${msg.id}`}
+                                  onClick={() => void handleExportPDF(msg)}
+                                  className={cn(
+                                    "min-h-10 inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]",
+                                    requested.pdf
+                                      ? "pill-gradient"
+                                      : "border border-blue-300 dark:border-blue-700/70 bg-white dark:bg-slate-900 text-[#3B68F7] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/50",
+                                  )}
+                                >
+                                  {exportingKey === `pdf-${msg.id}` ? (
+                                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <FileDown className="size-3.5" aria-hidden="true" />
+                                  )}
+                                  <span>Baixar PDF (.pdf)</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </article>
-                      ),
-                    )}
+                      );
+                    })}
 
                     {sending && (
                       <div
@@ -1070,8 +1238,8 @@ export function AssistantView({
                 </form>
 
                 <p className="mx-auto max-w-4xl text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
-                  <span>Enter envia · Shift+Enter quebra linha</span>
-                  <span>Somente leitura dos dados da empresa {tenantName}</span>
+                  <span>Enter envia · Shift+Enter quebra linha · Peça relatórios em Excel ou PDF</span>
+                  <span>Uso exclusivo para negócios da empresa {tenantName}</span>
                 </p>
               </div>
             </>

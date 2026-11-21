@@ -691,8 +691,8 @@ func (h *Handlers) AddMember(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusBadRequest, "Função selecionada não pertence a esta empresa.")
 		return
 	}
-	if roleKey == "owner" && !sess.User.IsMaster {
-		httpx.Message(w, http.StatusForbidden, "Apenas o acesso Master pode atribuir a função de Dono da empresa.")
+	if roleKey == "owner" {
+		httpx.Message(w, http.StatusForbidden, "A função de Dono da empresa é única e definida exclusivamente pelo Master em Gestão de empresas.")
 		return
 	}
 
@@ -778,18 +778,24 @@ func (h *Handlers) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var currentKey string
+	var targetUserID, currentKey, tenantOwnerUserID string
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT tr.key FROM tenant_memberships tm
-		 JOIN tenant_roles tr ON tr.id = tm.role_id
-		 WHERE tm.id = $1 AND tm.tenant_id = $2`,
-		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&currentKey)
+		`SELECT tm.user_id::text, tr.key, COALESCE(t.owner_user_id::text, '')
+		   FROM tenant_memberships tm
+		   JOIN tenant_roles tr ON tr.id = tm.role_id
+		   JOIN tenants t ON t.id = tm.tenant_id
+		  WHERE tm.id = $1 AND tm.tenant_id = $2`,
+		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&targetUserID, &currentKey, &tenantOwnerUserID)
 	if err != nil {
 		httpx.Message(w, http.StatusNotFound, "Vínculo não encontrado nesta empresa.")
 		return
 	}
-	if currentKey == "owner" && !sess.User.IsMaster {
-		httpx.Message(w, http.StatusForbidden, "A função do Dono da empresa só pode ser alterada por um acesso Master.")
+	if targetUserID == sess.User.ID {
+		httpx.Message(w, http.StatusForbidden, "Você não pode alterar a sua própria função nesta empresa.")
+		return
+	}
+	if currentKey == "owner" || (tenantOwnerUserID != "" && targetUserID == tenantOwnerUserID) {
+		httpx.Message(w, http.StatusForbidden, "A função do Dono da empresa não pode ser alterada aqui. A troca de responsável é feita exclusivamente pelo Master em Gestão de empresas.")
 		return
 	}
 
@@ -801,8 +807,8 @@ func (h *Handlers) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusBadRequest, "Nova função inválida.")
 		return
 	}
-	if newKey == "owner" && !sess.User.IsMaster {
-		httpx.Message(w, http.StatusForbidden, "Apenas o acesso Master pode promover alguém a Dono.")
+	if newKey == "owner" {
+		httpx.Message(w, http.StatusForbidden, "A função de Dono da empresa é única e definida exclusivamente pelo Master em Gestão de empresas.")
 		return
 	}
 
@@ -830,17 +836,23 @@ func (h *Handlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
 		return
 	}
-	var roleKey string
+	var targetUserID, roleKey, tenantOwnerUserID string
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT tr.key FROM tenant_memberships tm
-		 JOIN tenant_roles tr ON tr.id = tm.role_id
-		 WHERE tm.id = $1 AND tm.tenant_id = $2`,
-		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&roleKey)
+		`SELECT tm.user_id::text, tr.key, COALESCE(t.owner_user_id::text, '')
+		   FROM tenant_memberships tm
+		   JOIN tenant_roles tr ON tr.id = tm.role_id
+		   JOIN tenants t ON t.id = tm.tenant_id
+		  WHERE tm.id = $1 AND tm.tenant_id = $2`,
+		strings.TrimSpace(in.MembershipID), sess.Tenant.ID).Scan(&targetUserID, &roleKey, &tenantOwnerUserID)
 	if err != nil {
 		httpx.Message(w, http.StatusNotFound, "Membro não encontrado.")
 		return
 	}
-	if roleKey == "owner" {
+	if targetUserID == sess.User.ID {
+		httpx.Message(w, http.StatusForbidden, "Você não pode remover o seu próprio acesso nesta empresa.")
+		return
+	}
+	if roleKey == "owner" || (tenantOwnerUserID != "" && targetUserID == tenantOwnerUserID) {
 		httpx.Message(w, http.StatusBadRequest, "O Dono principal da empresa não pode ser removido da empresa.")
 		return
 	}

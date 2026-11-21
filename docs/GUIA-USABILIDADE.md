@@ -97,9 +97,9 @@ Todos os formulários aplicam formatação em tempo real e validação dupla (na
 - **Liberação para funcionários (controle do Dono)**:
   - Por padrão, apenas o **Dono da empresa** (e o Master em visão cliente) tem acesso ao **Assistente IA**.
   - Em **Roles e permissões**, o Dono pode marcar ou desmarcar **Assistente IA e relatórios** (`ai_chat:use`) por função.
-- **Isolamento de dados e relatórios prontos**:
-  - A IA lê **apenas** os dados da empresa ativa e somente dos módulos que o usuário tem permissão para visualizar.
-  - Clique em qualquer **cartão de relatório rápido** na tela inicial ou digite uma pergunta livre.
-  - Em cada resposta, utilize **Copiar**, **Imprimir / PDF** (gera folha limpa com Razão Social, CNPJ e data de emissão) ou **Baixar .md**.
+- **Isolamento de dados, foco em negócios e relatórios em Excel/PDF**:
+  - A IA lê **apenas** os dados da empresa ativa e somente dos módulos que o usuário tem permissão para visualizar — e responde **exclusivamente** sobre negócios e operação da plataforma (perguntas fora do escopo empresarial são recusadas automaticamente).
+  - A lista de **Contexto** no topo e o painel de **Histórico** lateral são **retráteis**, mantendo a tela limpa para leitura de relatórios.
+  - Em cada resposta (ou ao solicitar *"gerar em Excel"* / *"gerar em PDF"* no chat), utilize **Excel (.xlsx)** (planilha formatada com valores numéricos em R$ e aba de dados filtrável), **Baixar PDF** (documento A4 com cabeçalho oficial da empresa e paginação), **Copiar** ou **Imprimir**.
 
 
