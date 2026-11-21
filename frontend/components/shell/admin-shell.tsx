@@ -470,6 +470,9 @@ export function AdminShell({
             )}
 
             <span className="h-5 w-px bg-slate-200 dark:bg-white/10" aria-hidden="true" />
+            {!isMasterGlobalMode && (
+              <OnboardingBanner activeCompany={activeCompany} tenantName={session.tenant.name} />
+            )}
             <button
               type="button"
               onClick={() => setGuideOpen(true)}
@@ -521,10 +524,6 @@ export function AdminShell({
               </div>
               {action}
             </div>
-          )}
-
-          {!isMasterGlobalMode && (
-            <OnboardingBanner activeCompany={activeCompany} tenantName={session.tenant.name} />
           )}
 
           {children}

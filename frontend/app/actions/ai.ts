@@ -74,6 +74,7 @@ export async function sendAIChatAction(input: {
   try {
     const res = await apiFetch("/api/ai/chat", {
       method: "POST",
+      timeoutMs: 85_000,
       body: {
         conversationId: input.conversationId ?? "",
         message,

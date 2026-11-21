@@ -39,8 +39,8 @@ type Settings struct {
 }
 
 var DefaultModels = []string{
-	"nvidia/nemotron-3.5-lightning:free",
 	"nvidia/nemotron-3-ultra-550b-a55b:free",
+	"nvidia/nemotron-3.5-lightning:free",
 	"meta-llama/llama-3.3-70b-instruct:free",
 	"openrouter/free",
 }
@@ -137,6 +137,9 @@ func (c *OpenRouterClient) Complete(
 	fallbacks := 0
 
 	for idx, model := range ordered {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		attemptTimeout := time.Duration(baseTimeout) * time.Second
 		// Dá uma folga maior para o último fallback (especialmente openrouter/free)
 		if idx == len(ordered)-1 && attemptTimeout < 20*time.Second {
@@ -157,6 +160,11 @@ func (c *OpenRouterClient) Complete(
 				LatencyMs:     elapsedMs,
 				FallbackCount: fallbacks,
 			}, nil
+		}
+
+		// Se o cliente desconectou ou o contexto pai expirou, não envenena o cooldown dos modelos.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 
 		// Se o token OpenRouter da empresa for inválido ou sem crédito (401/402), aborta imediatamente sem fallback inútil.

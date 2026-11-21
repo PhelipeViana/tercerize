@@ -29,8 +29,8 @@ export interface AIMessageRow {
 }
 
 const DEFAULT_MODELS = [
-  "nvidia/nemotron-3.5-lightning:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3.5-lightning:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "openrouter/free",
 ];

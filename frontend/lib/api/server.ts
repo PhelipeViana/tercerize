@@ -5,7 +5,10 @@ import { COOKIE_NAME } from "@/lib/auth/session";
 const BASE_URL = (process.env.API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 const TIMEOUT_MS = 10_000;
 
-export async function apiFetch(path: string, init: { method?: "GET" | "POST"; body?: unknown } = {}): Promise<Response> {
+export async function apiFetch(
+  path: string,
+  init: { method?: "GET" | "POST"; body?: unknown; timeoutMs?: number } = {},
+): Promise<Response> {
   const [store, incoming] = await Promise.all([cookies(), headers()]);
   const token = store.get(COOKIE_NAME)?.value;
   const forwarded = incoming.get("x-forwarded-for");
@@ -18,7 +21,7 @@ export async function apiFetch(path: string, init: { method?: "GET" | "POST"; bo
     method: init.method ?? "GET",
     headers: requestHeaders,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(init.timeoutMs ?? TIMEOUT_MS),
     cache: "no-store",
   });
 }
