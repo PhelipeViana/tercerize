@@ -9,6 +9,7 @@ import {
   Clock,
   ExternalLink,
   Eye,
+  EyeOff,
   Loader2,
   Mail,
   Pencil,
@@ -19,9 +20,11 @@ import {
   Search,
   Send,
   ShieldAlert,
+  Sparkles,
   UserCheck,
   Users,
 } from "lucide-react";
+import { updateAISettingsStateAction } from "@/app/actions/ai";
 import {
   createCompanyStateAction,
   resendCompanyOwnerLinkAction,
@@ -30,11 +33,13 @@ import {
   updateCompanyStateAction,
 } from "@/app/actions/auth";
 import { ConfirmModal, Modal } from "@/components/ui/modal";
+import type { AISettingsData } from "@/lib/ai/repository";
 import type { CompanyRow } from "@/lib/operations/repository";
 import { formatCNPJ } from "@/lib/utils/cnpj";
 
 interface Props {
   companies: CompanyRow[];
+  aiSettings: AISettingsData;
 }
 
 type AccessFilter = "all" | "accessed" | "pending" | "inactive";
@@ -54,6 +59,7 @@ function CreateCompanyModal({
 }) {
   const [state, createAction, pending] = useActionState(createCompanyStateAction, undefined);
   const [cnpj, setCnpj] = useState("");
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     if (state?.values?.cnpj) {
@@ -195,6 +201,34 @@ function CreateCompanyModal({
           </div>
         </div>
 
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="modal-comp-or-token" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Token OpenRouter (Assistente IA)
+            </label>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">Opcional · exclusivo desta empresa</span>
+          </div>
+          <div className="relative">
+            <input
+              id="modal-comp-or-token"
+              name="openrouterToken"
+              type={showToken ? "text" : "password"}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="sk-or-v1-… (deixe em branco para não ativar IA)"
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 pl-4 pr-11 py-2.5 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken((v) => !v)}
+              aria-label={showToken ? "Ocultar token OpenRouter" : "Mostrar token OpenRouter"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 min-h-9 min-w-9 inline-flex items-center justify-center rounded-full text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              {showToken ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+            </button>
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-blue-200/70 dark:border-blue-500/20 bg-blue-50/70 dark:bg-blue-950/30 p-3.5 text-xs text-slate-700 dark:text-slate-300 flex items-start gap-2.5">
           <Mail className="size-4 shrink-0 text-[#3B68F7] mt-0.5" aria-hidden="true" />
           <span>
@@ -244,6 +278,7 @@ function EditCompanyModal({
   const [ownerName, setOwnerName] = useState(company?.ownerName ?? "");
   const [ownerEmail, setOwnerEmail] = useState(company?.ownerEmail ?? "");
   const [active, setActive] = useState(company?.active ? "true" : "false");
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     if (company) {
@@ -408,6 +443,51 @@ function EditCompanyModal({
               </p>
             )}
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/80 dark:bg-slate-800/50 p-3.5 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor="edit-modal-or-token" className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <Sparkles className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
+              <span>Token OpenRouter (Assistente IA)</span>
+            </label>
+            <span className="font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              {company.hasOpenrouterToken ? `Ativo (${company.openrouterTokenHint || "configurado"})` : "Não configurado"}
+            </span>
+          </div>
+          <div className="relative">
+            <input
+              id="edit-modal-or-token"
+              name="openrouterToken"
+              type={showToken ? "text" : "password"}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={
+                company.hasOpenrouterToken
+                  ? "Digite um novo token para substituir ou deixe em branco para manter…"
+                  : "sk-or-v1-… (opcional)"
+              }
+              className="w-full min-h-10 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 pl-3.5 pr-10 py-2 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken((v) => !v)}
+              aria-label={showToken ? "Ocultar token OpenRouter" : "Mostrar token OpenRouter"}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 min-h-8 min-w-8 inline-flex items-center justify-center rounded-full text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              {showToken ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+            </button>
+          </div>
+          {company.hasOpenrouterToken && (
+            <label className="inline-flex items-center gap-2 text-xs text-rose-700 dark:text-rose-300 cursor-pointer">
+              <input
+                type="checkbox"
+                name="clearOpenrouterToken"
+                className="size-4 rounded border-rose-300 text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500"
+              />
+              <span>Remover token OpenRouter desta empresa (desativa o Assistente IA)</span>
+            </label>
+          )}
         </div>
 
         <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
@@ -621,10 +701,176 @@ function CompanyDetailsModal({
   );
 }
 
-export function CompaniesView({ companies }: Props) {
+function AIModelsModal({
+  open,
+  onClose,
+  aiSettings,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  aiSettings: AISettingsData;
+  onSaved: (notice: { text: string }) => void;
+}) {
+  const [state, action, pending] = useActionState(updateAISettingsStateAction, undefined);
+  const [modelsText, setModelsText] = useState(aiSettings.models.join("\n"));
+  const [timeoutSec, setTimeoutSec] = useState(String(aiSettings.timeoutSeconds));
+  const [cooldownSec, setCooldownSec] = useState(String(aiSettings.cooldownSeconds));
+
+  useEffect(() => {
+    if (open) {
+      setModelsText(aiSettings.models.join("\n"));
+      setTimeoutSec(String(aiSettings.timeoutSeconds));
+      setCooldownSec(String(aiSettings.cooldownSeconds));
+    }
+  }, [open, aiSettings]);
+
+  useEffect(() => {
+    if (state?.ok && state.message) {
+      onSaved({ text: state.message });
+      onClose();
+    }
+  }, [state, onClose, onSaved]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Modelos de IA e Fallback Automático (OpenRouter)"
+      description="Gestão interna exclusiva Master. A ordem abaixo define qual modelo gratuito será usado primeiro e os fallbacks em caso de lentidão ou erro."
+      size="lg"
+    >
+      <form action={action} className="space-y-4">
+        {state?.error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-3.5 py-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300"
+          >
+            {state.error}
+          </p>
+        )}
+
+        <div className="space-y-1.5">
+          <label htmlFor="ai-models-list" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+            Cadeia ordenada de modelos OpenRouter (um slug por linha) *
+          </label>
+          <textarea
+            id="ai-models-list"
+            name="models"
+            rows={5}
+            spellCheck={false}
+            required
+            value={modelsText}
+            onChange={(e) => setModelsText(e.target.value)}
+            className="w-full rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 p-3.5 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          />
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Linha 1 = Modelo Primário (ex.: <code>nvidia/nemotron-3.5-lightning:free</code>). As linhas seguintes
+            entram automaticamente como fallback se o modelo anterior demorar mais que o timeout ou falhar.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label htmlFor="ai-timeout" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Timeout por modelo (segundos) *
+            </label>
+            <input
+              id="ai-timeout"
+              name="timeoutSeconds"
+              type="number"
+              min={5}
+              max={60}
+              value={timeoutSec}
+              onChange={(e) => setTimeoutSec(e.target.value)}
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2 font-mono text-sm text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="ai-cooldown" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Cooldown do Circuit Breaker Redis (segundos) *
+            </label>
+            <input
+              id="ai-cooldown"
+              name="cooldownSeconds"
+              type="number"
+              min={30}
+              max={1800}
+              value={cooldownSec}
+              onChange={(e) => setCooldownSec(e.target.value)}
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2 font-mono text-sm text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
+          <input
+            type="checkbox"
+            name="clearCooldowns"
+            defaultChecked
+            className="size-4 rounded border-slate-300 text-[#3B68F7]"
+          />
+          <span>Limpar cooldowns temporários no Redis ao salvar (testar novamente o modelo primário)</span>
+        </label>
+
+        {aiSettings.stats.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden">
+            <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200">
+              Telemetria real de respostas
+            </div>
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200/70 dark:border-white/10 text-slate-500">
+                  <th className="px-4 py-2">Modelo</th>
+                  <th className="px-4 py-2">Respostas</th>
+                  <th className="px-4 py-2">Latência média</th>
+                  <th className="px-4 py-2">Fallbacks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/60 dark:divide-white/10 tabular-nums">
+                {aiSettings.stats.map((st) => (
+                  <tr key={st.model}>
+                    <td className="px-4 py-2 font-mono text-[11px] font-semibold text-slate-900 dark:text-white">
+                      {st.model}
+                    </td>
+                    <td className="px-4 py-2">{st.calls}</td>
+                    <td className="px-4 py-2">{(st.avgLatencyMs / 1000).toFixed(1)}s</td>
+                    <td className="px-4 py-2">{st.totalFallback}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 px-5 py-2 text-xs font-semibold cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={pending}
+            className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
+          >
+            {pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
+            <span>Salvar cadeia de modelos</span>
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function CompaniesView({ companies, aiSettings }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AccessFilter>("all");
   const [createOpen, setCreateOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<CompanyRow | null>(null);
   const [detailsCompany, setDetailsCompany] = useState<CompanyRow | null>(null);
   const [confirmToggleCompany, setConfirmToggleCompany] = useState<CompanyRow | null>(null);
@@ -676,14 +922,25 @@ export function CompaniesView({ companies }: Props) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="min-h-11 inline-flex items-center gap-2 pill-gradient px-5 py-2.5 text-xs sm:text-sm font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          <span>Nova empresa</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setModelsOpen(true)}
+            className="min-h-11 inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          >
+            <Sparkles className="size-4 text-[#3B68F7]" aria-hidden="true" />
+            <span>Modelos de IA</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="min-h-11 inline-flex items-center gap-2 pill-gradient px-5 py-2.5 text-xs sm:text-sm font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            <span>Nova empresa</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback de ações */}
@@ -942,17 +1199,29 @@ export function CompaniesView({ companies }: Props) {
                       </td>
 
                       <td className="px-4 py-4 align-top">
-                        {c.active ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                            <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
-                            Ativa
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 dark:bg-rose-950/80 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
-                            <span className="size-1.5 rounded-full bg-rose-600" aria-hidden="true" />
-                            Desativada
-                          </span>
-                        )}
+                        <div className="flex flex-col items-start gap-1.5">
+                          {c.active ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                              <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
+                              Ativa
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 dark:bg-rose-950/80 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                              <span className="size-1.5 rounded-full bg-rose-600" aria-hidden="true" />
+                              Desativada
+                            </span>
+                          )}
+                          {c.hasOpenrouterToken ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-950/80 px-2.5 py-0.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300">
+                              <Sparkles className="size-3" aria-hidden="true" />
+                              IA ativa
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              Sem IA
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="px-4 py-4 align-top text-right">
@@ -1025,6 +1294,13 @@ export function CompaniesView({ companies }: Props) {
       </section>
 
       {/* Modais inteligentes */}
+      <AIModelsModal
+        open={modelsOpen}
+        onClose={() => setModelsOpen(false)}
+        aiSettings={aiSettings}
+        onSaved={setNotice}
+      />
+
       <CreateCompanyModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

@@ -41,6 +41,7 @@ services:
       MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-ssl}
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Tercerize}
+      AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-tercerize_openrouter_aes256_key_2026}
     depends_on:
       db:
         condition: service_healthy

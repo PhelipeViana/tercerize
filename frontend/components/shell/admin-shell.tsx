@@ -19,6 +19,7 @@ import {
   Search,
   Shield,
   ShieldCheck,
+  Sparkles,
   Users,
   X,
   type LucideIcon,
@@ -40,6 +41,7 @@ export type ModuleKey =
   | "inventory-items"
   | "finance"
   | "permissions"
+  | "assistant"
   | "companies";
 
 interface NavItem {
@@ -59,6 +61,7 @@ const CLIENT_NAV_ITEMS: NavItem[] = [
   { key: "epis", label: "Controle de EPIs", href: "/admin/epis", icon: Shield, permission: "epis:view" },
   { key: "inventory-items", label: "Almoxarifado e ativos", href: "/admin/inventory-items", icon: Archive, permission: "inventory:view" },
   { key: "finance", label: "Gestão financeira", href: "/admin/finance", icon: BarChart3, permission: "finance:view" },
+  { key: "assistant", label: "Assistente IA", href: "/admin/assistant", icon: Sparkles, permission: "ai_chat:use" },
   { key: "permissions", label: "Roles e permissões", href: "/admin/permissions", icon: ShieldCheck, accessManageOnly: true },
 ];
 
@@ -104,6 +107,9 @@ export function AdminShell({
   const visibleItems = isMasterGlobalMode
     ? MASTER_NAV_ITEMS
     : CLIENT_NAV_ITEMS.filter((item) => {
+        if (item.key === "assistant" && !session.tenant.hasOpenrouterToken && !isMaster && session.role.key !== "owner") {
+          return false;
+        }
         if (item.accessManageOnly) return canManageAccess;
         if (item.permission) {
           return isMaster || session.role.key === "owner" || Boolean(session.role.permissions[item.permission]);
@@ -145,7 +151,7 @@ export function AdminShell({
   }, [companies, companyQuery]);
 
   return (
-    <div className="flex h-dvh overflow-hidden p-2.5 sm:p-5 gap-4 sm:gap-5">
+    <div className="admin-shell-root flex h-dvh overflow-hidden p-2.5 sm:p-5 gap-4 sm:gap-5">
       {open && (
         <button
           type="button"
@@ -599,10 +605,17 @@ export function AdminShell({
                 </p>
               </li>
               <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
-                <p className="font-bold text-slate-900 dark:text-white">4. Roles e subpermissões (exclusivo Dono / Master)</p>
+                <p className="font-bold text-slate-900 dark:text-white">4. Assistente IA & Relatórios</p>
                 <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                  Convide outros e-mails com função única nesta empresa. Caso precise bloquear um acesso, o usuário é
-                  desconectado imediatamente.
+                  Tire dúvidas operacionais e gere relatórios exportáveis (PDF, copiar ou Markdown) usando apenas os
+                  dados dos módulos liberados para a sua função nesta empresa.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                <p className="font-bold text-slate-900 dark:text-white">5. Roles e subpermissões (exclusivo Dono / Master)</p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  Convide outros e-mails com função única nesta empresa e decida quais funções podem usar o Assistente
+                  IA. Ao bloquear um usuário, ele é desconectado imediatamente.
                 </p>
               </li>
             </ol>

@@ -160,3 +160,26 @@
   @apply rounded-full bg-gradient-to-r from-[#3B68F7] to-[#5346E8] hover:from-[#315CE8] hover:to-[#473AD8] text-white font-semibold transition-transform active:scale-[0.99];
   box-shadow: 0 8px 20px -4px rgba(67, 97, 238, 0.48);
 }
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #0f172a !important;
+  }
+
+  .admin-shell-root {
+    display: none !important;
+  }
+
+  .ai-print-portal {
+    display: block !important;
+  }
+}

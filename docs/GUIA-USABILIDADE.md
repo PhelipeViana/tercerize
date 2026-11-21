@@ -86,3 +86,19 @@ Todos os formulários aplicam formatação em tempo real e validação dupla (na
 | **Inteiros** | Apenas dígitos positivos (`inputMode="numeric"`) | Vigência em meses (`1–120`), Saldo inicial e Quantidade de estoque |
 | **Código Google Authenticator** | `000000` (exatamente 6 dígitos numéricos) | Login Etapa 2, Ativação do Autenticador |
 
+---
+
+## 7. Assistente IA & Relatórios (`/admin/assistant`)
+
+- **Ativação por empresa (exclusivo MASTER)**:
+  - Ao cadastrar ou editar uma empresa em **Gestão de empresas**, o Master pode preencher (opcionalmente) o **Token OpenRouter** (`sk-or-v1-...`). O token é armazenado criptografado no banco e nunca é exibido ao cliente.
+  - No topo de **Gestão de empresas**, o botão **Modelos de IA** permite ao Master gerenciar a ordem de prioridade dos modelos gratuitos (iniciando pela família **NVIDIA Nemotron**), timeout por tentativa e cooldown automático em caso de lentidão ou erro.
+- **Liberação para funcionários (controle do Dono)**:
+  - Por padrão, apenas o **Dono da empresa** (e o Master em visão cliente) tem acesso ao **Assistente IA**.
+  - Em **Roles e permissões**, o Dono pode marcar ou desmarcar **Assistente IA e relatórios** (`ai_chat:use`) por função.
+- **Isolamento de dados e relatórios prontos**:
+  - A IA lê **apenas** os dados da empresa ativa e somente dos módulos que o usuário tem permissão para visualizar.
+  - Clique em qualquer **cartão de relatório rápido** na tela inicial ou digite uma pergunta livre.
+  - Em cada resposta, utilize **Copiar**, **Imprimir / PDF** (gera folha limpa com Razão Social, CNPJ e data de emissão) ou **Baixar .md**.
+
+

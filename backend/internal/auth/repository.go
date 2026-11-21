@@ -25,12 +25,13 @@ type User struct {
 }
 
 type Tenant struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	CNPJ       string `json:"cnpj"`
-	OwnerName  string `json:"ownerName"`
-	OwnerEmail string `json:"ownerEmail"`
-	Active     bool   `json:"active"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	CNPJ               string `json:"cnpj"`
+	OwnerName          string `json:"ownerName"`
+	OwnerEmail         string `json:"ownerEmail"`
+	Active             bool   `json:"active"`
+	HasOpenRouterToken bool   `json:"hasOpenrouterToken"`
 }
 
 type RoleInfo struct {
@@ -76,6 +77,7 @@ var AllPermissionsTrue = map[string]bool{
 	"inventory:write":      true,
 	"finance:view":         true,
 	"finance:write":        true,
+	"ai_chat:use":          true,
 	"access:manage":        true,
 }
 
@@ -379,6 +381,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		`SELECT u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_configured_at,
 		        COALESCE(t.id::text, ''), COALESCE(t.name, ''), COALESCE(t.cnpj, ''),
 		        COALESCE(t.owner_name, ''), COALESCE(t.owner_email, ''), COALESCE(t.active, false),
+		        (COALESCE(t.openrouter_token_enc, '') <> ''),
 		        tr.id::text, tr.key, tr.name, tr.permissions
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
@@ -389,6 +392,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		Scan(
 			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &s.User.Blocked, &totpConfiguredAt,
 			&s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.OwnerName, &s.Tenant.OwnerEmail, &s.Tenant.Active,
+			&s.Tenant.HasOpenRouterToken,
 			&roleID, &roleKey, &roleName, &permsRaw,
 		)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -19,23 +19,26 @@ import (
 	"tercerize/backend/internal/auth"
 	"tercerize/backend/internal/httpx"
 	"tercerize/backend/internal/mailer"
+	"tercerize/backend/internal/secretbox"
 )
 
 type Handlers struct {
-	pool     *pgxpool.Pool
-	authRepo *auth.Repository
-	mailer   *mailer.Mailer
-	appURL   string
-	log      *slog.Logger
+	pool            *pgxpool.Pool
+	authRepo        *auth.Repository
+	mailer          *mailer.Mailer
+	appURL          string
+	aiEncryptionKey string
+	log             *slog.Logger
 }
 
-func NewHandlers(pool *pgxpool.Pool, authRepo *auth.Repository, m *mailer.Mailer, appURL string, log *slog.Logger) *Handlers {
+func NewHandlers(pool *pgxpool.Pool, authRepo *auth.Repository, m *mailer.Mailer, appURL, aiEncryptionKey string, log *slog.Logger) *Handlers {
 	return &Handlers{
-		pool:     pool,
-		authRepo: authRepo,
-		mailer:   m,
-		appURL:   strings.TrimRight(appURL, "/"),
-		log:      log,
+		pool:            pool,
+		authRepo:        authRepo,
+		mailer:          m,
+		appURL:          strings.TrimRight(appURL, "/"),
+		aiEncryptionKey: aiEncryptionKey,
+		log:             log,
 	}
 }
 
@@ -58,25 +61,25 @@ func seedDefaultRoles(ctx context.Context, tx pgx.Tx, tenantID string) (ownerRol
 			key:   "owner",
 			name:  "Dono da empresa",
 			desc:  "Acesso total à empresa e gestão exclusiva de funções e subpermissões.",
-			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"access:manage":true}`,
+			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"ai_chat:use":true,"access:manage":true}`,
 		},
 		{
 			key:   "manager",
 			name:  "Gerente operacional",
 			desc:  "Gestão completa dos módulos operacionais sem gerenciar funções ou acessos.",
-			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"access:manage":false}`,
+			perms: `{"contracts:view":true,"contracts:write":true,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":true,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":true,"finance:write":true,"ai_chat:use":false,"access:manage":false}`,
 		},
 		{
 			key:   "operator",
 			name:  "Operador técnico",
 			desc:  "Acesso a ordens de serviço, colaboradores, EPIs e almoxarifado.",
-			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":false,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":false,"finance:write":false,"access:manage":false}`,
+			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":true,"service_orders:write":true,"employees:view":true,"employees:write":false,"epis:view":true,"epis:write":true,"inventory:view":true,"inventory:write":true,"finance:view":false,"finance:write":false,"ai_chat:use":false,"access:manage":false}`,
 		},
 		{
 			key:   "financial",
 			name:  "Analista financeiro",
 			desc:  "Acesso à gestão financeira e visualização de contratos.",
-			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":false,"service_orders:write":false,"employees:view":false,"employees:write":false,"epis:view":false,"epis:write":false,"inventory:view":false,"inventory:write":false,"finance:view":true,"finance:write":true,"access:manage":false}`,
+			perms: `{"contracts:view":true,"contracts:write":false,"service_orders:view":false,"service_orders:write":false,"employees:view":false,"employees:write":false,"epis:view":false,"epis:write":false,"inventory:view":false,"inventory:write":false,"finance:view":true,"finance:write":true,"ai_chat:use":false,"access:manage":false}`,
 		},
 	}
 
@@ -108,10 +111,11 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name       string `json:"name"`
-		CNPJ       string `json:"cnpj"`
-		OwnerName  string `json:"ownerName"`
-		OwnerEmail string `json:"ownerEmail"`
+		Name            string `json:"name"`
+		CNPJ            string `json:"cnpj"`
+		OwnerName       string `json:"ownerName"`
+		OwnerEmail      string `json:"ownerEmail"`
+		OpenRouterToken string `json:"openrouterToken"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -175,11 +179,24 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rawTokenIn := strings.TrimSpace(in.OpenRouterToken)
+	var encToken, tokenHint string
+	if rawTokenIn != "" {
+		enc, encErr := secretbox.Encrypt(rawTokenIn, h.aiEncryptionKey)
+		if encErr != nil {
+			h.log.Error("criptografar token OpenRouter", "err", encErr)
+			httpx.Message(w, http.StatusInternalServerError, "Erro ao proteger o token OpenRouter.")
+			return
+		}
+		encToken = enc
+		tokenHint = secretbox.MaskHint(rawTokenIn)
+	}
+
 	var tenantID string
 	err = tx.QueryRow(ctx,
-		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active)
-		 VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
-		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID).Scan(&tenantID)
+		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active, openrouter_token_enc, openrouter_token_hint)
+		 VALUES ($1, $2, $3, $4, $5, true, $6, $7) RETURNING id`,
+		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID, encToken, tokenHint).Scan(&tenantID)
 	if err != nil {
 		h.log.Error("criar empresa", "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar empresa.")
@@ -243,13 +260,15 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TenantID   string `json:"tenantId"`
-		Name       string `json:"name"`
-		CNPJ       string `json:"cnpj"`
-		OwnerName  string `json:"ownerName"`
-		OwnerEmail string `json:"ownerEmail"`
-		Active     *bool  `json:"active"`
-		ResendLink bool   `json:"resendLink"`
+		TenantID             string `json:"tenantId"`
+		Name                 string `json:"name"`
+		CNPJ                 string `json:"cnpj"`
+		OwnerName            string `json:"ownerName"`
+		OwnerEmail           string `json:"ownerEmail"`
+		Active               *bool  `json:"active"`
+		ResendLink           bool   `json:"resendLink"`
+		OpenRouterToken      string `json:"openrouterToken"`
+		ClearOpenRouterToken bool   `json:"clearOpenrouterToken"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -365,6 +384,22 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("atualizar empresa", "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao salvar alterações da empresa.")
 		return
+	}
+
+	// Atualiza ou remove token OpenRouter da empresa quando informado pelo Master
+	if in.ClearOpenRouterToken {
+		_, _ = tx.Exec(ctx,
+			`UPDATE tenants SET openrouter_token_enc = '', openrouter_token_hint = '' WHERE id = $1`, tenantID)
+	} else if rawToken := strings.TrimSpace(in.OpenRouterToken); rawToken != "" {
+		enc, encErr := secretbox.Encrypt(rawToken, h.aiEncryptionKey)
+		if encErr != nil {
+			h.log.Error("criptografar token OpenRouter na edição", "err", encErr)
+			httpx.Message(w, http.StatusInternalServerError, "Erro ao proteger o token OpenRouter.")
+			return
+		}
+		_, _ = tx.Exec(ctx,
+			`UPDATE tenants SET openrouter_token_enc = $1, openrouter_token_hint = $2 WHERE id = $3`,
+			enc, secretbox.MaskHint(rawToken), tenantID)
 	}
 
 	// Vincula o novo responsável como Dono da empresa

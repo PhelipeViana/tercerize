@@ -8,6 +8,8 @@ export interface CompanyRow {
   ownerName: string;
   ownerEmail: string;
   active: boolean;
+  hasOpenrouterToken: boolean;
+  openrouterTokenHint: string;
   ownerBlocked: boolean;
   ownerTotpConfigured: boolean;
   ownerLastLoginAt: string | null;
@@ -172,6 +174,8 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       owner_name: string;
       owner_email: string;
       active: boolean;
+      has_openrouter_token: boolean;
+      openrouter_token_hint: string;
       owner_blocked: boolean;
       owner_totp_configured: boolean;
       owner_last_login_at: string | null;
@@ -189,6 +193,8 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
               COALESCE(t.owner_name, '') AS owner_name,
               COALESCE(t.owner_email, '') AS owner_email,
               t.active,
+              (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
+              COALESCE(t.openrouter_token_hint, '') AS openrouter_token_hint,
               COALESCE(ou.blocked, false) AS owner_blocked,
               (ou.totp_configured_at IS NOT NULL) AS owner_totp_configured,
               to_char(ou.last_login_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS owner_last_login_at,
@@ -216,6 +222,8 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       ownerName: r.owner_name,
       ownerEmail: r.owner_email,
       active: r.active,
+      hasOpenrouterToken: r.has_openrouter_token,
+      openrouterTokenHint: r.openrouter_token_hint,
       ownerBlocked: r.owner_blocked,
       ownerTotpConfigured: r.owner_totp_configured,
       ownerLastLoginAt: r.owner_last_login_at,
@@ -273,6 +281,8 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     ownerName: r.owner_name,
     ownerEmail: r.owner_email,
     active: r.active,
+    hasOpenrouterToken: false,
+    openrouterTokenHint: "",
     ownerBlocked: false,
     ownerTotpConfigured: true,
     ownerLastLoginAt: null,

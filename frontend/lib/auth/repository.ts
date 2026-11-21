@@ -16,6 +16,7 @@ export interface SessionTenant {
   ownerName: string;
   ownerEmail: string;
   active: boolean;
+  hasOpenrouterToken: boolean;
 }
 
 export interface SessionRole {
@@ -44,6 +45,7 @@ export const ALL_PERMISSIONS_TRUE: Record<string, boolean> = {
   "inventory:write": true,
   "finance:view": true,
   "finance:write": true,
+  "ai_chat:use": true,
   "access:manage": true,
 };
 
@@ -61,6 +63,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
     owner_name: string;
     owner_email: string;
     tenant_active: boolean;
+    has_openrouter_token: boolean;
     role_id: string | null;
     role_key: string | null;
     role_name: string | null;
@@ -74,6 +77,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
             COALESCE(t.owner_name, '') AS owner_name,
             COALESCE(t.owner_email, '') AS owner_email,
             COALESCE(t.active, false) AS tenant_active,
+            (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
             tr.id::text AS role_id, tr.key AS role_key, tr.name AS role_name,
             tr.permissions AS role_permissions
        FROM sessions s
@@ -131,6 +135,7 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
       ownerName: row.owner_name,
       ownerEmail: row.owner_email,
       active: row.tenant_active,
+      hasOpenrouterToken: Boolean(row.has_openrouter_token),
     },
     role,
   };

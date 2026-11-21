@@ -9,16 +9,17 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"tercerize/backend/internal/ai"
 	"tercerize/backend/internal/auth"
 	"tercerize/backend/internal/operations"
 )
 
-func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations.Handlers) http.Handler {
+func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations.Handlers, aiHandlers *ai.Handlers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middleware.Timeout(90 * time.Second))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -76,6 +77,14 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/service-orders/status", opHandlers.UpdateServiceOrderStatus)
 			r.Post("/financial-entries", opHandlers.CreateFinancialEntry)
 			r.Post("/financial-entries/reconcile", opHandlers.ReconcileFinancialEntry)
+
+			// Assistente IA & Relatórios (OpenRouter por cliente + fallback global Master)
+			r.Get("/ai/settings", aiHandlers.GetSettings)
+			r.Post("/ai/settings", aiHandlers.UpdateSettings)
+			r.Get("/ai/conversations", aiHandlers.ListConversations)
+			r.Delete("/ai/conversations/{id}", aiHandlers.DeleteConversation)
+			r.Post("/ai/conversations/delete", aiHandlers.DeleteConversation)
+			r.Post("/ai/chat", aiHandlers.Chat)
 		})
 	})
 

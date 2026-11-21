@@ -418,6 +418,11 @@ export function PermissionsView({
                         </span>
                       );
                     })}
+                    {(r.key === "owner" || Boolean(r.permissions["ai_chat:use"])) && (
+                      <span className="rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-0.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300">
+                        Assistente IA: Liberado
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -629,6 +634,28 @@ export function PermissionsView({
                     </td>
                   </tr>
                 ))}
+                <tr className="bg-blue-50/50 dark:bg-blue-950/20">
+                  <td className="px-4 py-3">
+                    <span className="block font-bold text-slate-900 dark:text-white">
+                      Assistente IA e relatórios
+                    </span>
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                      Lê somente dados desta empresa nos módulos marcados como &ldquo;Visualizar&rdquo; acima.
+                    </span>
+                  </td>
+                  <td colSpan={2} className="px-4 py-3 text-center">
+                    <label className="inline-flex items-center gap-2 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="perm_ai_chat:use"
+                        aria-label="Liberar uso do Assistente IA e relatórios"
+                        defaultChecked={Boolean(editingRole?.permissions["ai_chat:use"])}
+                        className="size-4 rounded border-slate-300 text-[#3B68F7] focus-visible:ring-2 focus-visible:ring-[#3B68F7] cursor-pointer"
+                      />
+                      <span>Liberar chat IA</span>
+                    </label>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

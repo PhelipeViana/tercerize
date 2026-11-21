@@ -11,6 +11,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"tercerize/backend/internal/ai"
 	"tercerize/backend/internal/api"
 	"tercerize/backend/internal/auth"
 	"tercerize/backend/internal/config"
@@ -66,11 +67,12 @@ func run(log *slog.Logger) error {
 	mailSender := mailer.New(cfg.Mail, log)
 	authRepo := auth.NewRepository(pool)
 	authHandlers := auth.NewHandlers(authRepo, auth.NewLoginLimiter(rdb), mailSender, cfg.AppName, cfg.AppURL, cfg.CookieSecure, log)
-	opHandlers := operations.NewHandlers(pool, authRepo, mailSender, cfg.AppURL, log)
+	opHandlers := operations.NewHandlers(pool, authRepo, mailSender, cfg.AppURL, cfg.AIEncryptionKey, log)
+	aiHandlers := ai.NewHandlers(pool, rdb, cfg.AppURL, cfg.AppName, cfg.AIEncryptionKey, log)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.New(pool, authHandlers, opHandlers),
+		Handler:           api.New(pool, authHandlers, opHandlers, aiHandlers),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errCh := make(chan error, 1)

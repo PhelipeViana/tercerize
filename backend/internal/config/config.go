@@ -18,25 +18,27 @@ type MailConfig struct {
 }
 
 type Config struct {
-	Port         string
-	DatabaseURL  string
-	RedisURL     string
-	CookieSecure bool
-	AppName      string
-	AppURL       string
-	Mail         MailConfig
+	Port            string
+	DatabaseURL     string
+	RedisURL        string
+	CookieSecure    bool
+	AppName         string
+	AppURL          string
+	AIEncryptionKey string
+	Mail            MailConfig
 }
 
 func FromEnv() Config {
 	appName := get("APP_NAME", "Tercerize")
 	fromName := strings.ReplaceAll(get("MAIL_FROM_NAME", appName), "${APP_NAME}", appName)
 	return Config{
-		Port:         get("PORT", "8080"),
-		DatabaseURL:  get("DATABASE_URL", "postgres://tercerize:tercerize_secret_2026@localhost:5432/tercerize?sslmode=disable"),
-		RedisURL:     get("REDIS_URL", "redis://localhost:6379"),
-		CookieSecure: getBool("COOKIE_SECURE", false),
-		AppName:      appName,
-		AppURL:       strings.TrimRight(get("APP_URL", "https://tercerize.dataweb3.com.br"), "/"),
+		Port:            get("PORT", "8080"),
+		DatabaseURL:     get("DATABASE_URL", "postgres://tercerize:tercerize_secret_2026@localhost:5432/tercerize?sslmode=disable"),
+		RedisURL:        get("REDIS_URL", "redis://localhost:6379"),
+		CookieSecure:    getBool("COOKIE_SECURE", false),
+		AppName:         appName,
+		AppURL:          strings.TrimRight(get("APP_URL", "https://tercerize.dataweb3.com.br"), "/"),
+		AIEncryptionKey: get("AI_ENCRYPTION_KEY", "tercerize_openrouter_aes256_key_2026"),
 		Mail: MailConfig{
 			Mailer:      get("MAIL_MAILER", "smtp"),
 			Host:        get("MAIL_HOST", ""),

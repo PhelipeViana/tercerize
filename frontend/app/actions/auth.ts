@@ -349,6 +349,7 @@ export async function createCompanyStateAction(
   const rawCnpj = text(formData.get("cnpj")).trim();
   const ownerName = text(formData.get("ownerName")).trim();
   const ownerEmail = text(formData.get("ownerEmail")).trim();
+  const openrouterToken = text(formData.get("openrouterToken")).trim();
 
   const values = { name, cnpj: rawCnpj, ownerName, ownerEmail };
 
@@ -385,7 +386,7 @@ export async function createCompanyStateAction(
   try {
     const res = await apiFetch("/api/tenants", {
       method: "POST",
-      body: { name, cnpj: cnpjCheck.formatted, ownerName, ownerEmail },
+      body: { name, cnpj: cnpjCheck.formatted, ownerName, ownerEmail, openrouterToken },
     });
     const data = (await res.json().catch(() => ({}))) as {
       id?: string;
@@ -512,6 +513,7 @@ const PERMISSION_KEYS = [
   "inventory:write",
   "finance:view",
   "finance:write",
+  "ai_chat:use",
 ];
 
 export async function saveRoleStateAction(
@@ -565,6 +567,8 @@ export async function updateCompanyStateAction(
   const ownerEmail = text(formData.get("ownerEmail")).trim();
   const active = text(formData.get("active")) !== "false";
   const resendLink = formData.get("resendLink") === "on";
+  const openrouterToken = text(formData.get("openrouterToken")).trim();
+  const clearOpenrouterToken = formData.get("clearOpenrouterToken") === "on";
 
   if (!tenantId) {
     return { message: "Empresa inválida." };
@@ -603,6 +607,8 @@ export async function updateCompanyStateAction(
         ownerEmail,
         active,
         resendLink,
+        openrouterToken,
+        clearOpenrouterToken,
       },
     });
     const data = (await res.json().catch(() => ({}))) as {
