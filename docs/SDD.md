@@ -74,3 +74,6 @@
 - **SDD-009 (Padronização Visual Completa com Modais nos 6 Módulos Operacionais e Guia de Usabilidade)**:
   - Todos os 6 módulos operacionais (`contracts-view.tsx`, `service-orders-view.tsx`, `employees-view.tsx`, `epis-view.tsx`, `inventory-view.tsx`, `finance-view.tsx`) unificados ao mesmo padrão de `CompaniesView` e `PermissionsView`: faixa estruturada de KPIs, tabela full-width e cadastros/detalhes em `<Modal>` acessível (preservando deep-links de onboarding).
   - Adicionado botão contextual **Guia** na barra superior do `AdminShell` abrindo modal de orientação rápida (MASTER vs Empresa Cliente) e criado o guia completo em `docs/GUIA-USABILIDADE.md`.
+- **SDD-010 (Telefone e E-mail Obrigatórios para Clientes + Sistema Global de Máscaras e Validação)**:
+  - Migração `0008_client_phone_and_email.sql`: colunas `phone` e `email` estruturadas em `clients` com validação estrita em Go (`auth.ValidatePhoneBR` + `auth.NormalizeEmail`) e TypeScript (`frontend/lib/utils/masks.ts`).
+  - Biblioteca central `frontend/lib/utils/masks.ts` aplicada em todos os formulários: CNPJ (`00.000.000/0000-00` com dígitos verificadores), Telefone BR (`(00) 0000-0000` / `(00) 00000-0000`), Moeda BRL em tempo real (`R$ 18.500,00`), CA de EPI (`CA-XXXXX`), SKU maiúsculo (`A-Z0-9-`), Inteiros positivos e Código TOTP de 6 dígitos.

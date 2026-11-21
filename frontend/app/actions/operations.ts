@@ -3,20 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api/server";
-import { validateCNPJ } from "@/lib/utils/cnpj";
+import {
+  formatCANumber,
+  formatSKU,
+  parseCurrencyBRL,
+  validateCNPJ,
+  validateEmail,
+  validatePhoneBR,
+} from "@/lib/utils/masks";
 
 const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? value.trim() : "");
 
 function parseBRLNumber(raw: string): number {
-  const cleaned = raw.trim().replace(/\s/g, "");
-  if (!cleaned) return 0;
-  if (cleaned.includes(",") && cleaned.includes(".")) {
-    return Number(cleaned.replace(/\./g, "").replace(",", "."));
-  }
-  if (cleaned.includes(",")) {
-    return Number(cleaned.replace(",", "."));
-  }
-  return Number(cleaned);
+  return parseCurrencyBRL(raw);
 }
 
 export type ClientActionState =
@@ -25,9 +24,9 @@ export type ClientActionState =
     clientId?: string;
     clientName?: string;
     clientCnpj?: string;
-    fieldError?: { field: "name" | "cnpj"; message: string };
+    fieldError?: { field: "name" | "cnpj" | "phone" | "email"; message: string };
     error?: string;
-    values?: { name?: string; cnpj?: string; contact?: string };
+    values?: { name?: string; cnpj?: string; phone?: string; email?: string };
   }
   | undefined;
 
@@ -37,12 +36,15 @@ export async function createClientStateAction(
 ): Promise<ClientActionState> {
   const name = text(formData.get("name"));
   const rawCnpj = text(formData.get("cnpj"));
-  const contact = text(formData.get("contact"));
+  const rawPhone = text(formData.get("phone"));
+  const rawEmail = text(formData.get("email"));
+
+  const baseValues = { name, cnpj: rawCnpj, phone: rawPhone, email: rawEmail };
 
   if (name.length < 2) {
     return {
       fieldError: { field: "name", message: "Informe a razão social do cliente (mínimo 2 caracteres)." },
-      values: { name, cnpj: rawCnpj, contact },
+      values: baseValues,
     };
   }
 
@@ -50,32 +52,59 @@ export async function createClientStateAction(
   if (!cnpjCheck.valid) {
     return {
       fieldError: { field: "cnpj", message: cnpjCheck.error ?? "CNPJ inválido." },
-      values: { name, cnpj: cnpjCheck.formatted, contact },
+      values: { ...baseValues, cnpj: cnpjCheck.formatted },
+    };
+  }
+
+  const phoneCheck = validatePhoneBR(rawPhone);
+  if (!phoneCheck.valid) {
+    return {
+      fieldError: { field: "phone", message: phoneCheck.error ?? "Telefone inválido." },
+      values: { ...baseValues, cnpj: cnpjCheck.formatted, phone: phoneCheck.formatted },
+    };
+  }
+
+  const emailCheck = validateEmail(rawEmail);
+  if (!emailCheck.valid) {
+    return {
+      fieldError: { field: "email", message: emailCheck.error ?? "E-mail inválido." },
+      values: { ...baseValues, cnpj: cnpjCheck.formatted, phone: phoneCheck.formatted, email: emailCheck.normalized },
     };
   }
 
   const res = await apiFetch("/api/clients", {
     method: "POST",
-    body: { name, cnpj: cnpjCheck.formatted, contact },
+    body: {
+      name,
+      cnpj: cnpjCheck.formatted,
+      phone: phoneCheck.formatted,
+      email: emailCheck.normalized,
+    },
   });
   const data = (await res.json().catch(() => ({}))) as {
     id?: string;
     name?: string;
     cnpj?: string;
-    field?: "name" | "cnpj";
+    field?: "name" | "cnpj" | "phone" | "email";
     message?: string;
   };
 
   if (!res.ok) {
+    const preserved = {
+      name,
+      cnpj: cnpjCheck.formatted,
+      phone: phoneCheck.formatted,
+      email: emailCheck.normalized,
+    };
     if (data.field) {
       return {
         fieldError: { field: data.field, message: data.message ?? "Dado inválido." },
-        values: { name, cnpj: cnpjCheck.formatted, contact },
+        values: preserved,
       };
     }
     return {
       error: data.message ?? "Não foi possível salvar o cliente.",
-      values: { name, cnpj: cnpjCheck.formatted, contact },
+      values: preserved,
     };
   }
 
@@ -279,7 +308,7 @@ export async function createEPIStateAction(
 ): Promise<EPIActionState> {
   const employeeId = text(formData.get("employeeId"));
   const epiName = text(formData.get("epiName"));
-  const caNumber = text(formData.get("caNumber"));
+  const caNumber = formatCANumber(text(formData.get("caNumber")));
   const deliveredAt = text(formData.get("deliveredAt"));
   const expiresAt = text(formData.get("expiresAt"));
   const signMode = text(formData.get("signMode")); // "pending" | "signed"
@@ -287,7 +316,7 @@ export async function createEPIStateAction(
   const evidenceCode = text(formData.get("evidenceCode"));
 
   if (!employeeId || !epiName || !caNumber || !expiresAt) {
-    return { error: "Preencha o colaborador, descrição do EPI, número do CA e validade." };
+    return { error: "Preencha o colaborador, descrição do EPI, número numérico do CA e validade." };
   }
 
   const receiptSigned = signMode === "signed";
@@ -427,7 +456,7 @@ export async function createInventoryItemStateAction(
   _prev: InventoryItemState,
   formData: FormData,
 ): Promise<InventoryItemState> {
-  const sku = text(formData.get("sku"));
+  const sku = formatSKU(text(formData.get("sku")));
   const description = text(formData.get("description"));
   const category = text(formData.get("category")) || "Material";
   const quantity = Number(text(formData.get("quantity")) || "0");
@@ -438,8 +467,11 @@ export async function createInventoryItemStateAction(
   if (!sku || !description) {
     return { error: "Informe o código SKU e a descrição do item." };
   }
-  if (quantity < 0) {
-    return { error: "O saldo inicial não pode ser negativo." };
+  if (!Number.isInteger(quantity) || quantity < 0) {
+    return { error: "O saldo inicial deve ser um número inteiro maior ou igual a zero." };
+  }
+  if (!Number.isFinite(unitValue) || unitValue < 0) {
+    return { error: "Informe um valor unitário válido em reais (R$)." };
   }
 
   const res = await apiFetch("/api/inventory-items", {

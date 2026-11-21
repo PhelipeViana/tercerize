@@ -68,3 +68,21 @@ Todas as telas da plataforma seguem a mesma anatomia previsível para reduzir a 
    - Registre em **Novo lançamento** (campo valor inicia em branco) e use **Conciliar / Reabrir** na tabela.
 7. **Roles e permissões (`/admin/permissions`)**:
    - Use **Convidar usuário** para conceder subpermissões e **Nova função** / **Editar permissões** para customizar a matriz granular por módulo.
+
+---
+
+## 5. Padrão de Tipos de Dados e Máscaras nos Formulários
+
+Todos os formulários aplicam formatação em tempo real e validação dupla (navegador + API Go):
+
+| Tipo de Campo | Máscara / Formato | Onde é aplicado |
+|---|---|---|
+| **CNPJ** | `00.000.000/0000-00` (14 dígitos + validação oficial módulo-11) | Nova/Editar Empresa, Novo Cliente, Recuperação de Autenticação |
+| **Telefone de contato** | `(00) 0000-0000` (fixo) ou `(00) 00000-0000` (celular), DDD válido | Novo Cliente (obrigatório) |
+| **E-mail** | `usuario@dominio.com` (minúsculas, sem espaços, validação RFC) | Login, Recuperação, Nova/Editar Empresa, Novo Cliente, Convidar Usuário |
+| **Valor monetário (R$)** | `18.500,00` (centavos automáticos em tempo real, prefixo `R$`) | Novo Contrato, Novo Lançamento Financeiro, Novo Item de Estoque |
+| **Número do CA** | `CA-00000` (prefixo automático + dígitos) | Registro de Entrega de EPI |
+| **Código SKU** | `AAA-000` (maiúsculas, alfanumérico e hífen) | Novo Item de Almoxarifado |
+| **Inteiros** | Apenas dígitos positivos (`inputMode="numeric"`) | Vigência em meses (`1–120`), Saldo inicial e Quantidade de estoque |
+| **Código Google Authenticator** | `000000` (exatamente 6 dígitos numéricos) | Login Etapa 2, Ativação do Autenticador |
+

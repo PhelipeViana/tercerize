@@ -124,6 +124,7 @@ function CreateCompanyModal({
             name="cnpj"
             inputMode="numeric"
             spellCheck={false}
+            maxLength={18}
             required
             value={cnpj}
             onChange={(e) => setCnpj(formatCNPJ(e.target.value))}
@@ -322,6 +323,7 @@ function EditCompanyModal({
               name="cnpj"
               inputMode="numeric"
               spellCheck={false}
+              maxLength={18}
               required
               value={cnpj}
               onChange={(e) => setCnpj(formatCNPJ(e.target.value))}

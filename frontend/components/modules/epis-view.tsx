@@ -13,6 +13,7 @@ import {
 import { createEPIStateAction, signEPIAction } from "@/app/actions/operations";
 import { Modal } from "@/components/ui/modal";
 import type { EmployeeRow, EPIDeliveryRow } from "@/lib/operations/repository";
+import { formatCANumber } from "@/lib/utils/masks";
 
 interface Props {
   tenantName: string;
@@ -36,6 +37,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
 
   const [filterMode, setFilterMode] = useState<"todos" | "pendentes" | "assinados" | "vencimento">("todos");
   const [signMode, setSignMode] = useState<"pending" | "signed">("pending");
+  const [caNumberInput, setCaNumberInput] = useState("");
   const [deliveredAt, setDeliveredAt] = useState(getTodayIso);
   const [expiresAt, setExpiresAt] = useState(getOneYearFromNowIso);
 
@@ -45,6 +47,7 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
 
   useEffect(() => {
     if (state?.ok) {
+      setCaNumberInput("");
       setCreateOpen(false);
     }
   }, [state]);
@@ -153,11 +156,10 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
               role="tab"
               aria-selected={filterMode === item.key}
               onClick={() => setFilterMode(item.key)}
-              className={`min-h-9 rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${
-                filterMode === item.key
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
-                  : "font-medium text-slate-600 dark:text-slate-300"
-              }`}
+              className={`min-h-9 rounded-full px-4 py-1.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${filterMode === item.key
+                ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
+                : "font-medium text-slate-600 dark:text-slate-300"
+                }`}
             >
               {item.label}
             </button>
@@ -347,9 +349,13 @@ export function EPIsView({ tenantName, deliveries, employees }: Props) {
                 <input
                   id="modal-epi-ca"
                   name="caNumber"
+                  inputMode="numeric"
                   spellCheck={false}
+                  maxLength={11}
+                  value={caNumberInput}
+                  onChange={(e) => setCaNumberInput(formatCANumber(e.target.value))}
                   required
-                  placeholder="Ex.: CA-42110…"
+                  placeholder="CA-42110…"
                   className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
                 />
               </div>

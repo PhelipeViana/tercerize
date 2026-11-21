@@ -86,6 +86,37 @@ func NormalizeEmail(raw string) (string, string) {
 	return email, ""
 }
 
+// ValidatePhoneBR validates a Brazilian phone number (10 digits landline or 11 digits mobile)
+// and returns the canonical formatted string "(00) 0000-0000" or "(00) 00000-0000".
+func ValidatePhoneBR(raw string) (string, string) {
+	digits := strings.Map(func(r rune) rune {
+		if unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, raw)
+	if len(digits) != 10 && len(digits) != 11 {
+		return raw, "Informe um telefone válido com DDD (10 ou 11 dígitos)."
+	}
+	if digits[0] == '0' {
+		return raw, "DDD inválido. Informe um DDD válido com 2 dígitos."
+	}
+	allSame := true
+	for i := 1; i < len(digits); i++ {
+		if digits[i] != digits[0] {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		return raw, "Telefone inválido: dígitos repetidos não são permitidos."
+	}
+	if len(digits) == 10 {
+		return fmt.Sprintf("(%s) %s-%s", digits[0:2], digits[2:6], digits[6:10]), ""
+	}
+	return fmt.Sprintf("(%s) %s-%s", digits[0:2], digits[2:7], digits[7:11]), ""
+}
+
 func ValidateLogin(in LoginInput) (LoginInput, FieldErrors) {
 	errs := FieldErrors{}
 	email, msg := NormalizeEmail(in.Email)

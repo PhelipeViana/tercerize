@@ -16,7 +16,7 @@ import {
 import { createClientStateAction } from "@/app/actions/operations";
 import { Modal } from "@/components/ui/modal";
 import type { ClientRow, ContractRow } from "@/lib/operations/repository";
-import { formatCNPJ } from "@/lib/utils/cnpj";
+import { formatCNPJ, formatPhoneBR } from "@/lib/utils/masks";
 
 interface Props {
   tenantName: string;
@@ -44,6 +44,7 @@ export function ContractsView({
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [newClientOpen, setNewClientOpen] = useState(false);
   const [cnpjInput, setCnpjInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
 
   const [clientState, clientAction, clientPending] = useActionState(createClientStateAction, undefined);
 
@@ -55,10 +56,15 @@ export function ContractsView({
   }, []);
 
   useEffect(() => {
-    if (clientState?.values?.cnpj) {
+    if (clientState?.values?.cnpj !== undefined) {
       setCnpjInput(clientState.values.cnpj);
-    } else if (clientState?.ok) {
+    }
+    if (clientState?.values?.phone !== undefined) {
+      setPhoneInput(clientState.values.phone);
+    }
+    if (clientState?.ok) {
       setCnpjInput("");
+      setPhoneInput("");
       setNewClientOpen(false);
     }
   }, [clientState]);
@@ -95,6 +101,8 @@ export function ContractsView({
       (cl) =>
         cl.name.toLowerCase().includes(q) ||
         cl.cnpj.toLowerCase().includes(q) ||
+        cl.phone.toLowerCase().includes(q) ||
+        cl.email.toLowerCase().includes(q) ||
         cl.contact.toLowerCase().includes(q),
     );
   }, [clients, query]);
@@ -455,14 +463,15 @@ export function ContractsView({
                 <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
                   <th className="rounded-l-xl px-4 py-3.5">Cliente tomador</th>
                   <th className="px-4 py-3.5">CNPJ</th>
-                  <th className="px-4 py-3.5">Contato principal</th>
+                  <th className="px-4 py-3.5">Telefone</th>
+                  <th className="px-4 py-3.5">E-mail</th>
                   <th className="rounded-r-xl px-4 py-3.5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
                 {clients.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-12 text-center space-y-3">
+                    <td colSpan={5} className="px-4 py-12 text-center space-y-3">
                       <p className="text-sm font-bold text-slate-900 dark:text-white">
                         Nenhum cliente cadastrado em {tenantName}
                       </p>
@@ -478,7 +487,7 @@ export function ContractsView({
                   </tr>
                 ) : filteredClients.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center space-y-2">
+                    <td colSpan={5} className="px-4 py-10 text-center space-y-2">
                       <p className="text-sm font-bold text-slate-900 dark:text-white">Nenhum cliente encontrado</p>
                       {hasClientFilters && (
                         <button
@@ -497,7 +506,12 @@ export function ContractsView({
                     <tr key={cl.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                       <td className="px-4 py-4 font-bold text-slate-900 dark:text-white">{cl.name}</td>
                       <td className="px-4 py-4 font-mono text-xs text-slate-600 dark:text-slate-300">{cl.cnpj}</td>
-                      <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-300">{cl.contact || "—"}</td>
+                      <td className="px-4 py-4 font-mono text-xs text-slate-700 dark:text-slate-200 tabular-nums">
+                        {cl.phone || "—"}
+                      </td>
+                      <td className="px-4 py-4 font-mono text-xs text-slate-600 dark:text-slate-300">
+                        {cl.email || cl.contact || "—"}
+                      </td>
                       <td className="px-4 py-4 text-right">
                         <div className="inline-flex items-center gap-2">
                           <button
@@ -580,6 +594,7 @@ export function ContractsView({
               name="cnpj"
               inputMode="numeric"
               spellCheck={false}
+              maxLength={18}
               required
               value={cnpjInput}
               onChange={(e) => setCnpjInput(formatCNPJ(e.target.value))}
@@ -598,17 +613,65 @@ export function ContractsView({
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <label htmlFor="modal-client-contact" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Contato principal
-            </label>
-            <input
-              id="modal-client-contact"
-              name="contact"
-              defaultValue={clientState?.values?.contact ?? ""}
-              placeholder="(65) 3322-0000 · gestao@cliente.com.br…"
-              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="modal-client-phone" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Telefone de contato *
+                </label>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Fixo ou celular</span>
+              </div>
+              <input
+                id="modal-client-phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={15}
+                required
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(formatPhoneBR(e.target.value))}
+                aria-invalid={clientState?.fieldError?.field === "phone"}
+                placeholder="(65) 99999-0000…"
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 ${
+                  clientState?.fieldError?.field === "phone"
+                    ? "border-rose-400 focus-visible:ring-rose-500"
+                    : "border-slate-300 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                }`}
+              />
+              {clientState?.fieldError?.field === "phone" && (
+                <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                  {clientState.fieldError.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-client-email" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                E-mail de contato *
+              </label>
+              <input
+                id="modal-client-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                spellCheck={false}
+                required
+                defaultValue={clientState?.values?.email ?? ""}
+                aria-invalid={clientState?.fieldError?.field === "email"}
+                placeholder="contato@cliente.com.br…"
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 ${
+                  clientState?.fieldError?.field === "email"
+                    ? "border-rose-400 focus-visible:ring-rose-500"
+                    : "border-slate-300 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                }`}
+              />
+              {clientState?.fieldError?.field === "email" && (
+                <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                  {clientState.fieldError.message}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -703,11 +766,19 @@ export function ContractsView({
       >
         {selectedClient && (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-4 text-xs space-y-1.5">
-              <p className="text-slate-500 dark:text-slate-400">Contato principal</p>
-              <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                {selectedClient.contact || "Não informado"}
-              </p>
+            <div className="grid gap-3 sm:grid-cols-2 text-xs">
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1">
+                <p className="text-slate-500 dark:text-slate-400">Telefone de contato</p>
+                <p className="font-mono text-sm font-semibold text-slate-900 dark:text-white tabular-nums">
+                  {selectedClient.phone || "Não informado"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1 min-w-0">
+                <p className="text-slate-500 dark:text-slate-400">E-mail de contato</p>
+                <p className="font-mono text-xs font-semibold text-slate-900 dark:text-white truncate">
+                  {selectedClient.email || selectedClient.contact || "Não informado"}
+                </p>
+              </div>
             </div>
             <div className="flex justify-end gap-2.5">
               <button

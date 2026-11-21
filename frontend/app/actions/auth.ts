@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { apiFetch } from "@/lib/api/server";
 import { clearSessionCookie, setSessionCookie } from "@/lib/auth/session";
-import { validateCNPJ } from "@/lib/utils/cnpj";
+import { validateCNPJ, validateEmail } from "@/lib/utils/masks";
 
 export type LoginStepState =
   | {
@@ -374,9 +374,10 @@ export async function createCompanyStateAction(
     };
   }
 
-  if (!ownerEmail.includes("@")) {
+  const emailCheck = validateEmail(ownerEmail);
+  if (!emailCheck.valid) {
     return {
-      fieldError: { field: "ownerEmail", message: "Informe um e-mail válido para o responsável." },
+      fieldError: { field: "ownerEmail", message: emailCheck.error ?? "Informe um e-mail válido para o responsável." },
       values: { ...values, cnpj: cnpjCheck.formatted },
     };
   }
@@ -584,9 +585,10 @@ export async function updateCompanyStateAction(
       fieldError: { field: "ownerName", message: "Informe o nome do responsável (dono da empresa)." },
     };
   }
-  if (!ownerEmail.includes("@")) {
+  const emailCheck = validateEmail(ownerEmail);
+  if (!emailCheck.valid) {
     return {
-      fieldError: { field: "ownerEmail", message: "Informe um e-mail válido para o responsável." },
+      fieldError: { field: "ownerEmail", message: emailCheck.error ?? "Informe um e-mail válido para o responsável." },
     };
   }
 

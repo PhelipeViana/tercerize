@@ -55,6 +55,8 @@ export interface ClientRow {
   id: string;
   name: string;
   cnpj: string;
+  phone: string;
+  email: string;
   contact: string;
 }
 
@@ -367,7 +369,10 @@ export async function listTenantMembers(tenantId: string): Promise<TenantMemberR
 
 export async function listClients(tenantId: string): Promise<ClientRow[]> {
   const { rows } = await getPool().query<ClientRow>(
-    `SELECT id, name, cnpj, contact
+    `SELECT id, name, cnpj,
+            COALESCE(phone, '') AS phone,
+            COALESCE(email, '') AS email,
+            contact
        FROM clients
       WHERE tenant_id = $1
       ORDER BY created_at DESC, name ASC`,

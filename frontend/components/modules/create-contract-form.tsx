@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Building2, CheckCircle2, Loader2, Plus, Users } from "lucide-react";
 import { createContractStateAction } from "@/app/actions/operations";
 import type { ClientRow } from "@/lib/operations/repository";
+import { formatCurrencyBRL, formatInteger } from "@/lib/utils/masks";
 
 interface Props {
   tenantName: string;
@@ -19,6 +20,8 @@ export function CreateContractForm({ tenantName, clients, initialClientId }: Pro
     (initialClientId && clients.some((c) => c.id === initialClientId) ? initialClientId : clients[0]?.id ?? "");
 
   const [selectedClientId, setSelectedClientId] = useState(defaultClientId);
+  const [durationMonths, setDurationMonths] = useState(state?.values?.durationMonths ?? "12");
+  const [monthlyValue, setMonthlyValue] = useState(state?.values?.monthlyValue ?? "");
   const selectedClient = clients.find((c) => c.id === selectedClientId);
 
   if (clients.length === 0) {
@@ -143,12 +146,13 @@ export function CreateContractForm({ tenantName, clients, initialClientId }: Pro
             <input
               id="durationMonths"
               name="durationMonths"
-              type="number"
-              min={1}
-              max={120}
-              defaultValue={state?.values?.durationMonths ?? "12"}
+              type="text"
+              inputMode="numeric"
+              maxLength={3}
+              value={durationMonths}
+              onChange={(e) => setDurationMonths(formatInteger(e.target.value, 3))}
               required
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-3 text-sm font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm font-medium text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
             />
           </div>
 
@@ -156,21 +160,31 @@ export function CreateContractForm({ tenantName, clients, initialClientId }: Pro
             <label htmlFor="monthlyValue" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
               Valor mensal (R$) *
             </label>
-            <input
-              id="monthlyValue"
-              name="monthlyValue"
-              type="text"
-              inputMode="decimal"
-              defaultValue={state?.values?.monthlyValue ?? ""}
-              aria-invalid={state?.fieldError?.field === "monthlyValue"}
-              placeholder="Ex.: 18.500,00"
-              required
-              className={`w-full rounded-full border bg-white dark:bg-slate-800 px-4 py-3 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus-visible:ring-2 ${
-                state?.fieldError?.field === "monthlyValue"
-                  ? "border-rose-400 focus-visible:ring-rose-500"
-                  : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
-              }`}
-            />
+            <div className="relative">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 dark:text-slate-400"
+              >
+                R$
+              </span>
+              <input
+                id="monthlyValue"
+                name="monthlyValue"
+                type="text"
+                inputMode="numeric"
+                spellCheck={false}
+                value={monthlyValue}
+                onChange={(e) => setMonthlyValue(formatCurrencyBRL(e.target.value))}
+                aria-invalid={state?.fieldError?.field === "monthlyValue"}
+                placeholder="0,00…"
+                required
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 pl-10 pr-4 py-2.5 font-mono text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 ${
+                  state?.fieldError?.field === "monthlyValue"
+                    ? "border-rose-400 focus-visible:ring-rose-500"
+                    : "border-slate-300 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                }`}
+              />
+            </div>
             {state?.fieldError?.field === "monthlyValue" && (
               <p role="alert" className="pl-2 text-xs font-semibold text-rose-600 dark:text-rose-400">
                 {state.fieldError.message}

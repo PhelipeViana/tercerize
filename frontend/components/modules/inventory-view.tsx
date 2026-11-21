@@ -19,6 +19,7 @@ import type {
   InventoryMovementRow,
   ServiceOrderRow,
 } from "@/lib/operations/repository";
+import { formatCurrencyBRL, formatInteger, formatSKU } from "@/lib/utils/masks";
 
 interface Props {
   tenantName: string;
@@ -64,6 +65,9 @@ export function InventoryView({
     selectedItem?.category === "Ferramenta" ? "Cautela" : "Saída",
   );
   const [qtyInput, setQtyInput] = useState<string>("1");
+  const [skuInput, setSkuInput] = useState<string>("");
+  const [initialQtyInput, setInitialQtyInput] = useState<string>("");
+  const [unitValueInput, setUnitValueInput] = useState<string>("");
 
   useEffect(() => {
     if (movState?.ok) {
@@ -74,6 +78,9 @@ export function InventoryView({
 
   useEffect(() => {
     if (itemState?.ok) {
+      setSkuInput("");
+      setInitialQtyInput("");
+      setUnitValueInput("");
       setItemOpen(false);
     }
   }, [itemState]);
@@ -237,16 +244,14 @@ export function InventoryView({
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          item.level === "Normal"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${item.level === "Normal"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                          }`}
                       >
                         <span
-                          className={`size-1.5 rounded-full ${
-                            item.level === "Normal" ? "bg-emerald-600" : "bg-amber-600"
-                          }`}
+                          className={`size-1.5 rounded-full ${item.level === "Normal" ? "bg-emerald-600" : "bg-amber-600"
+                            }`}
                           aria-hidden="true"
                         />
                         {item.level}
@@ -283,22 +288,20 @@ export function InventoryView({
             <button
               type="button"
               onClick={() => setHistoryFilter("todos")}
-              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${
-                historyFilter === "todos"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
-                  : "font-medium text-slate-600 dark:text-slate-300"
-              }`}
+              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${historyFilter === "todos"
+                ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
+                : "font-medium text-slate-600 dark:text-slate-300"
+                }`}
             >
               Todas ({movements.length})
             </button>
             <button
               type="button"
               onClick={() => setHistoryFilter("cautelas")}
-              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${
-                historyFilter === "cautelas"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
-                  : "font-medium text-slate-600 dark:text-slate-300"
-              }`}
+              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${historyFilter === "cautelas"
+                ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
+                : "font-medium text-slate-600 dark:text-slate-300"
+                }`}
             >
               Cautelas e devoluções
             </button>
@@ -338,11 +341,10 @@ export function InventoryView({
                       </td>
                       <td className="px-4 py-3.5">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            isOut
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
-                          }`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${isOut
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
+                            }`}
                         >
                           {m.movementType}
                         </span>
@@ -449,15 +451,15 @@ export function InventoryView({
               <input
                 id="modal-mov-qty"
                 name="quantity"
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
                 value={qtyInput}
-                onChange={(e) => setQtyInput(e.target.value)}
+                onChange={(e) => setQtyInput(formatInteger(e.target.value, 6))}
                 aria-invalid={exceedsBalance || movState?.field === "quantity"}
                 required
-                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white ${
-                  exceedsBalance ? "border-rose-400" : "border-slate-300 dark:border-white/15"
-                }`}
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white ${exceedsBalance ? "border-rose-400" : "border-slate-300 dark:border-white/15"
+                  }`}
               />
               {selectedItem && exceedsBalance && (
                 <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">
@@ -580,6 +582,9 @@ export function InventoryView({
                 id="modal-item-sku"
                 name="sku"
                 spellCheck={false}
+                maxLength={32}
+                value={skuInput}
+                onChange={(e) => setSkuInput(formatSKU(e.target.value))}
                 required
                 placeholder="Ex.: CAB-UTP-CAT6…"
                 className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white"
@@ -621,11 +626,14 @@ export function InventoryView({
               <input
                 id="modal-item-qty"
                 name="quantity"
-                type="number"
-                min={0}
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={initialQtyInput}
+                onChange={(e) => setInitialQtyInput(formatInteger(e.target.value, 6))}
                 placeholder="Ex.: 5…"
                 required
-                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white"
               />
             </div>
 
@@ -646,15 +654,26 @@ export function InventoryView({
               <label htmlFor="modal-item-val" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Valor unitário (R$) *
               </label>
-              <input
-                id="modal-item-val"
-                name="unitValue"
-                type="text"
-                inputMode="decimal"
-                placeholder="Ex.: 120,00…"
-                required
-                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
-              />
+              <div className="relative">
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 dark:text-slate-400"
+                >
+                  R$
+                </span>
+                <input
+                  id="modal-item-val"
+                  name="unitValue"
+                  type="text"
+                  inputMode="numeric"
+                  spellCheck={false}
+                  value={unitValueInput}
+                  onChange={(e) => setUnitValueInput(formatCurrencyBRL(e.target.value))}
+                  placeholder="0,00…"
+                  required
+                  className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 pl-10 pr-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white"
+                />
+              </div>
             </div>
           </div>
 

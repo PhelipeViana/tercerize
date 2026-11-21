@@ -15,6 +15,7 @@ import {
 } from "@/app/actions/operations";
 import { Modal } from "@/components/ui/modal";
 import type { ContractRow, FinancialEntryRow } from "@/lib/operations/repository";
+import { formatCurrencyBRL } from "@/lib/utils/masks";
 
 interface Props {
   tenantName: string;
@@ -44,9 +45,14 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const [dueDate, setDueDate] = useState(getTodayIso);
   const [formType, setFormType] = useState<"Receita" | "Despesa">("Receita");
   const [formContractId, setFormContractId] = useState<string>("");
+  const [amountInput, setAmountInput] = useState<string>("");
 
   useEffect(() => {
+    if (state?.values?.amount !== undefined) {
+      setAmountInput(state.values.amount);
+    }
     if (state?.ok) {
+      setAmountInput("");
       setCreateOpen(false);
     }
   }, [state]);
@@ -264,11 +270,10 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                   <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          entry.entryType === "Receita"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
-                            : "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
-                        }`}
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${entry.entryType === "Receita"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
+                          : "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
+                          }`}
                       >
                         {entry.entryType}
                       </span>
@@ -283,16 +288,14 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          entry.reconciliationStatus === "Conciliado"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${entry.reconciliationStatus === "Conciliado"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                          }`}
                       >
                         <span
-                          className={`size-1.5 rounded-full ${
-                            entry.reconciliationStatus === "Conciliado" ? "bg-emerald-600" : "bg-amber-600"
-                          }`}
+                          className={`size-1.5 rounded-full ${entry.reconciliationStatus === "Conciliado" ? "bg-emerald-600" : "bg-amber-600"
+                            }`}
                           aria-hidden="true"
                         />
                         {entry.reconciliationStatus}
@@ -394,19 +397,30 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
               <label htmlFor="modal-fin-amount" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Valor (R$) *
               </label>
-              <input
-                id="modal-fin-amount"
-                name="amount"
-                type="text"
-                inputMode="decimal"
-                defaultValue={state?.values?.amount ?? ""}
-                placeholder="Ex.: 1.500,00…"
-                aria-invalid={state?.field === "amount"}
-                required
-                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white ${
-                  state?.field === "amount" ? "border-rose-400" : "border-slate-300 dark:border-white/15"
-                }`}
-              />
+              <div className="relative">
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 dark:text-slate-400"
+                >
+                  R$
+                </span>
+                <input
+                  id="modal-fin-amount"
+                  name="amount"
+                  type="text"
+                  inputMode="numeric"
+                  spellCheck={false}
+                  value={amountInput}
+                  onChange={(e) => setAmountInput(formatCurrencyBRL(e.target.value))}
+                  placeholder="0,00…"
+                  aria-invalid={state?.field === "amount"}
+                  required
+                  className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 pl-10 pr-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 ${state?.field === "amount"
+                    ? "border-rose-400 focus-visible:ring-rose-500"
+                    : "border-slate-300 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                    }`}
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">

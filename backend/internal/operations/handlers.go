@@ -972,6 +972,8 @@ func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name    string `json:"name"`
 		CNPJ    string `json:"cnpj"`
+		Phone   string `json:"phone"`
+		Email   string `json:"email"`
 		Contact string `json:"contact"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
@@ -994,12 +996,33 @@ func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	formattedPhone, phoneErr := auth.ValidatePhoneBR(in.Phone)
+	if phoneErr != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "phone",
+			"message": phoneErr,
+		})
+		return
+	}
+	normalizedEmail, emailErr := auth.NormalizeEmail(in.Email)
+	if emailErr != "" {
+		httpx.Write(w, http.StatusBadRequest, map[string]any{
+			"field":   "email",
+			"message": emailErr,
+		})
+		return
+	}
+
+	contactSummary := formattedPhone + " · " + normalizedEmail
+	if extra := strings.TrimSpace(in.Contact); extra != "" {
+		contactSummary = extra + " · " + contactSummary
+	}
 
 	var id string
 	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO clients (tenant_id, name, cnpj, contact)
-		 VALUES ($1, $2, $3, $4) RETURNING id`,
-		sess.Tenant.ID, name, formattedCNPJ, strings.TrimSpace(in.Contact)).Scan(&id)
+		`INSERT INTO clients (tenant_id, name, cnpj, phone, email, contact)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		sess.Tenant.ID, name, formattedCNPJ, formattedPhone, normalizedEmail, contactSummary).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -1013,7 +1036,13 @@ func (h *Handlers) CreateClient(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar cliente.")
 		return
 	}
-	httpx.Write(w, http.StatusCreated, map[string]any{"id": id, "name": name, "cnpj": formattedCNPJ})
+	httpx.Write(w, http.StatusCreated, map[string]any{
+		"id":    id,
+		"name":  name,
+		"cnpj":  formattedCNPJ,
+		"phone": formattedPhone,
+		"email": normalizedEmail,
+	})
 }
 
 // CreateContract: POST /api/contracts
