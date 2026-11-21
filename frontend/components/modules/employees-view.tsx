@@ -1,22 +1,18 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
-  Building2,
-  Calendar,
-  Check,
   CheckCircle2,
-  FileText,
+  Eye,
   History,
   Loader2,
   Plus,
-  Users,
-  X,
 } from "lucide-react";
 import { createEmployeeStateAction, updateEmployeeScheduleAction } from "@/app/actions/operations";
+import { Modal } from "@/components/ui/modal";
 import type {
   ContractRow,
   EmployeeRow,
@@ -55,8 +51,8 @@ export function EmployeesView({
   inventoryMovements,
   initialContractId,
 }: Props) {
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const [state, createAction, pending] = useActionState(createEmployeeStateAction, undefined);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const defaultContractId =
     initialContractId && contracts.some((c) => c.id === initialContractId)
@@ -67,12 +63,26 @@ export function EmployeesView({
   const [formSchedule, setFormSchedule] = useState(SCHEDULES[0]);
   const [viewMode, setViewMode] = useState<"quadro" | "cobertura">("quadro");
 
-  // Colaborador selecionado para inspeção de detalhe (posto, turno, histórico e troca de escala)
   const [selectedEmp, setSelectedEmp] = useState<EmployeeRow | null>(null);
   const [detailContractId, setDetailContractId] = useState<string>("");
   const [detailSchedule, setDetailSchedule] = useState<string>(SCHEDULES[0]);
   const [detailStatus, setDetailStatus] = useState<string>("Alocado");
   const [effectiveDate, setEffectiveDate] = useState<string>(getTodayIso);
+
+  useEffect(() => {
+    if (
+      (typeof window !== "undefined" && window.location.hash === "#novo-colaborador") ||
+      Boolean(initialContractId)
+    ) {
+      setCreateOpen(true);
+    }
+  }, [initialContractId]);
+
+  useEffect(() => {
+    if (state?.ok) {
+      setCreateOpen(false);
+    }
+  }, [state]);
 
   const openEmployeeDetail = (emp: EmployeeRow) => {
     setSelectedEmp(emp);
@@ -88,7 +98,6 @@ export function EmployeesView({
     [employees],
   );
 
-  // Histórico operacional do colaborador selecionado
   const empOrders = useMemo(
     () => (selectedEmp ? serviceOrders.filter((o) => o.employeeId === selectedEmp.id) : []),
     [serviceOrders, selectedEmp],
@@ -101,13 +110,12 @@ export function EmployeesView({
     () =>
       selectedEmp
         ? inventoryMovements.filter(
-            (m) => m.employeeName && m.employeeName.toLowerCase() === selectedEmp.name.toLowerCase(),
-          )
+          (m) => m.employeeName && m.employeeName.toLowerCase() === selectedEmp.name.toLowerCase(),
+        )
         : [],
     [inventoryMovements, selectedEmp],
   );
 
-  // Detecção de conflito de escala no formulário de novo colaborador
   const newFormConflict = useMemo(() => {
     if (!formContractId) return null;
     return employees.find(
@@ -118,7 +126,6 @@ export function EmployeesView({
     );
   }, [employees, formContractId, formSchedule]);
 
-  // Detecção de conflito de escala na troca de turno do colaborador selecionado
   const detailConflict = useMemo(() => {
     if (!selectedEmp || !detailContractId) return null;
     return employees.find(
@@ -130,112 +137,86 @@ export function EmployeesView({
     );
   }, [employees, selectedEmp, detailContractId, detailSchedule]);
 
-  const targetContract = contracts.find((c) => c.id === detailContractId);
-
   return (
     <div className="space-y-5">
-      {/* Cabeçalho com Ação Principal única junto ao título */}
+      {/* Cabeçalho padronizado */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
         <div>
-          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+          <h1 className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight text-balance">
             Colaboradores e escalas
           </h1>
-          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
-            Equipe técnica, funções, histórico por colaborador e verificação de conflito de turno em {tenantName}.
+          <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+            Equipe técnica, cobertura por posto, histórico individual e validação de conflito de turno em {tenantName}.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => {
-            nameInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-            setTimeout(() => nameInputRef.current?.focus(), 60);
-          }}
-          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          onClick={() => setCreateOpen(true)}
+          className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
         >
           <Plus className="size-4" aria-hidden="true" />
           <span>Novo colaborador</span>
         </button>
       </div>
 
-      {/* Banner pós-salvamento de alocação (Passo 4 -> Passo 5) */}
       {state?.ok && state.employeeId && (
         <div
           role="status"
-          className="rounded-3xl border border-blue-200 dark:border-blue-700/60 bg-blue-50/95 dark:bg-blue-950/60 p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3"
+          aria-live="polite"
+          className="rounded-2xl border border-blue-200 dark:border-blue-700/60 bg-blue-50/95 dark:bg-blue-950/60 p-4 flex flex-wrap items-center justify-between gap-3"
         >
           <div className="flex items-center gap-3">
             <CheckCircle2 className="size-5 shrink-0 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
             <div>
               <p className="text-sm font-bold text-slate-900 dark:text-white">
-                Colaborador {state.employeeName} alocado com sucesso em {tenantName}!
+                Colaborador {state.employeeName} alocado com sucesso
               </p>
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                Conclua a primeira operação abrindo uma ordem de serviço com este técnico já sugerido.
+                Próximo passo: abrir uma ordem de serviço com este técnico já selecionado.
               </p>
             </div>
           </div>
           <Link
             href={`/admin/service-orders?clientId=${encodeURIComponent(state.clientId ?? "")}&contractId=${encodeURIComponent(state.contractId ?? "")}&employeeId=${encodeURIComponent(state.employeeId)}#nova-os`}
-            className="inline-flex min-h-10 items-center gap-2 pill-gradient px-5 py-2 text-xs"
+            className="min-h-10 inline-flex items-center gap-2 pill-gradient px-5 py-2 text-xs font-bold"
           >
-            <span>Abrir primeira ordem</span>
+            <span>Abrir ordem de serviço</span>
             <ArrowRight className="size-3.5" aria-hidden="true" />
           </Link>
         </div>
       )}
 
-      {/* 4 Pastel Glass KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-blue-100/80 via-blue-50/65 to-white/85 dark:from-blue-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 dark:bg-blue-500/20 text-[#3B68F7] dark:text-blue-300">
-            <Users className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Equipe total</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
-              {employees.length}
-            </p>
-          </div>
+      {/* Faixa estruturada de métricas */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200/80 dark:divide-white/10 rounded-[24px] solid-surface overflow-hidden">
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Equipe total</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            {employees.length}
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-purple-100/80 via-purple-50/65 to-white/85 dark:from-purple-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-purple-500/15 dark:bg-purple-500/20 text-purple-600 dark:text-purple-300">
-            <Check className="size-6 stroke-[2]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Alocados</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">{alocados}</p>
-          </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Alocados</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+            {alocados}
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-emerald-100/80 via-emerald-50/65 to-white/85 dark:from-emerald-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300">
-            <FileText className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Contratos ativos</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
-              {contracts.length}
-            </p>
-          </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Contratos ativos</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            {contracts.length}
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-sky-100/80 via-sky-50/65 to-white/85 dark:from-sky-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-sky-600/15 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300">
-            <Calendar className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Escalas em operação</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
-              {activeSchedulesCount}
-            </p>
-          </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Escalas em operação</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-[#3B68F7] dark:text-blue-400 tabular-nums">
+            {activeSchedulesCount}
+          </p>
         </div>
       </div>
 
-      {/* Main Solid Table Card */}
-      <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
+      {/* Superfície principal Full-Width */}
+      <section className="rounded-[28px] solid-surface p-5 sm:p-6 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div
             role="tablist"
@@ -247,11 +228,10 @@ export function EmployeesView({
               role="tab"
               aria-selected={viewMode === "quadro"}
               onClick={() => setViewMode("quadro")}
-              className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
-                viewMode === "quadro"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
-                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
-              }`}
+              className={`min-h-9 rounded-full px-5 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${viewMode === "quadro"
+                ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
+                : "font-medium text-slate-600 dark:text-slate-300"
+                }`}
             >
               Quadro técnico ({employees.length})
             </button>
@@ -260,260 +240,44 @@ export function EmployeesView({
               role="tab"
               aria-selected={viewMode === "cobertura"}
               onClick={() => setViewMode("cobertura")}
-              className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
-                viewMode === "cobertura"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
-                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
-              }`}
+              className={`min-h-9 rounded-full px-5 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${viewMode === "cobertura"
+                ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
+                : "font-medium text-slate-600 dark:text-slate-300"
+                }`}
             >
-              Cobertura semanal por posto
+              Cobertura por posto
             </button>
           </div>
-
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Clique no nome do colaborador para ver posto, turno, histórico e trocar escala
-          </span>
         </div>
-
-        {/* Detalhe do colaborador clicado: Posto, Turno, Histórico Operacional, Período Afetado e Conflito */}
-        {selectedEmp && (
-          <div
-            role="region"
-            aria-label={`Detalhes, histórico e escala de ${selectedEmp.name}`}
-            className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-950/30 p-5 space-y-4"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <span className="text-base font-extrabold text-slate-900 dark:text-white">
-                    {selectedEmp.name}
-                  </span>
-                  <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-3 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                    {selectedEmp.status}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                  Função: <strong>{selectedEmp.roleTitle}</strong> · Posto atual:{" "}
-                  <strong>
-                    {selectedEmp.contractCode
-                      ? `${selectedEmp.contractCode.replace("#", "")} (${selectedEmp.clientName} · ${selectedEmp.workstation ?? "Unidade principal"})`
-                      : "Reserva técnica"}
-                  </strong>{" "}
-                  · Turno atual: <strong>{selectedEmp.schedule}</strong>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedEmp(null)}
-                aria-label="Fechar detalhes do colaborador"
-                className="rounded-full p-1.5 text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                <X className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-
-            {/* Histórico operacional do colaborador no detalhe */}
-            <div className="grid gap-3 sm:grid-cols-3 text-xs">
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3.5 border border-slate-200/80 dark:border-white/10 space-y-1.5">
-                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
-                  <span className="inline-flex items-center gap-1.5">
-                    <History className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
-                    Ordens de serviço
-                  </span>
-                  <span>{empOrders.length}</span>
-                </div>
-                {empOrders.length === 0 ? (
-                  <p className="text-slate-500">Nenhuma OS atribuída no histórico.</p>
-                ) : (
-                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
-                    {empOrders.slice(0, 3).map((o) => (
-                      <li key={o.id} className="truncate">
-                        <strong>{o.code.replace("#", "")}</strong> · {o.clientName} ({o.status})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3.5 border border-slate-200/80 dark:border-white/10 space-y-1.5">
-                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
-                  <span>EPIs vinculados</span>
-                  <span>{empEpis.length}</span>
-                </div>
-                {empEpis.length === 0 ? (
-                  <p className="text-slate-500">Nenhuma entrega de EPI registrada.</p>
-                ) : (
-                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
-                    {empEpis.slice(0, 3).map((d) => (
-                      <li key={d.id} className="truncate">
-                        <strong>{d.caNumber}</strong> · {d.epiName} (
-                        {d.receiptSigned ? "Assinado" : "Pendente"})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3.5 border border-slate-200/80 dark:border-white/10 space-y-1.5">
-                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
-                  <span>Cautelas / almoxarifado</span>
-                  <span>{empMovements.length}</span>
-                </div>
-                {empMovements.length === 0 ? (
-                  <p className="text-slate-500">Sem movimentações ou cautelas.</p>
-                ) : (
-                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
-                    {empMovements.slice(0, 3).map((m) => (
-                      <li key={m.id} className="truncate">
-                        <strong>{m.movementType}</strong> · {m.itemSku} ({m.quantity} {m.unit})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            {/* Resumo do período afetado + Conflito identificado antes de confirmar */}
-            <div className="rounded-xl bg-white dark:bg-slate-900 p-3.5 border border-slate-200/80 dark:border-white/10 text-xs flex flex-wrap items-center justify-between gap-2">
-              <span className="text-slate-700 dark:text-slate-200">
-                <strong>Período afetado pela troca de escala:</strong> vigência a partir de{" "}
-                <strong>{effectiveDate.split("-").reverse().join("/")}</strong> no turno{" "}
-                <strong>{detailSchedule}</strong> — Posto:{" "}
-                <strong>
-                  {targetContract
-                    ? `${targetContract.code.replace("#", "")} · ${targetContract.clientName} (${targetContract.workstation})`
-                    : "Reserva técnica"}
-                </strong>
-              </span>
-            </div>
-
-            {detailConflict && (
-              <div
-                role="alert"
-                className="rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200"
-              >
-                <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
-                <div>
-                  <p className="font-bold">
-                    Conflito de escala identificado para o período a partir de{" "}
-                    {effectiveDate.split("-").reverse().join("/")}
-                  </p>
-                  <p className="mt-0.5">
-                    O colaborador <strong>{detailConflict.name}</strong> ({detailConflict.roleTitle}) já está alocado
-                    neste mesmo contrato e turno (<strong>{detailSchedule}</strong>). Revise o turno antes de confirmar
-                    para evitar sobreposição indevida.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <form
-              action={async (fd) => {
-                await updateEmployeeScheduleAction(fd);
-                setSelectedEmp(null);
-              }}
-              className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-white/10"
-            >
-              <input type="hidden" name="id" value={selectedEmp.id} />
-              <div className="space-y-1">
-                <label htmlFor="detail-contract" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Posto / contrato vinculado
-                </label>
-                <select
-                  id="detail-contract"
-                  name="contractId"
-                  value={detailContractId}
-                  onChange={(e) => setDetailContractId(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white"
-                >
-                  <option value="">Reserva técnica (sem posto fixo)</option>
-                  {contracts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code.replace("#", "")} · {c.clientName} ({c.workstation})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="detail-schedule" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Novo turno / escala
-                </label>
-                <select
-                  id="detail-schedule"
-                  name="schedule"
-                  value={detailSchedule}
-                  onChange={(e) => setDetailSchedule(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white"
-                >
-                  {SCHEDULES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="detail-date" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Início do período afetado
-                </label>
-                <input
-                  id="detail-date"
-                  name="effectiveDate"
-                  type="date"
-                  value={effectiveDate}
-                  onChange={(e) => setEffectiveDate(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="detail-status" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Situação operacional
-                </label>
-                <select
-                  id="detail-status"
-                  name="status"
-                  value={detailStatus}
-                  onChange={(e) => setDetailStatus(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white"
-                >
-                  <option value="Alocado">Alocado</option>
-                  <option value="Disponível">Disponível</option>
-                  <option value="Afastado">Afastado</option>
-                </select>
-              </div>
-
-              <button
-                type="submit"
-                className="min-h-9 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold px-4 py-2 text-xs cursor-pointer"
-              >
-                Confirmar troca de escala
-              </button>
-            </form>
-          </div>
-        )}
 
         {viewMode === "quadro" ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-xs sm:text-sm">
               <thead>
-                <tr className="rounded-xl bg-slate-100 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
+                <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
                   <th className="rounded-l-xl px-4 py-3.5">Colaborador</th>
                   <th className="px-4 py-3.5">Função / cargo</th>
                   <th className="px-4 py-3.5">Contrato / posto</th>
                   <th className="px-4 py-3.5">Escala / turno</th>
                   <th className="px-4 py-3.5">Situação</th>
-                  <th className="rounded-r-xl px-4 py-3.5 text-right">Detalhe / escala</th>
+                  <th className="rounded-r-xl px-4 py-3.5 text-right">Escala e histórico</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
                 {employees.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-xs text-slate-500 dark:text-slate-400">
-                      Nenhum colaborador cadastrado em <strong>{tenantName}</strong>. Utilize o formulário abaixo para
-                      alocar o primeiro profissional.
+                    <td colSpan={6} className="px-4 py-12 text-center space-y-3">
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">
+                        Nenhum colaborador cadastrado em {tenantName}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setCreateOpen(true)}
+                        className="min-h-10 inline-flex items-center gap-2 pill-gradient px-5 py-2 text-xs font-bold cursor-pointer"
+                      >
+                        <Plus className="size-3.5" aria-hidden="true" />
+                        <span>Cadastrar primeiro colaborador</span>
+                      </button>
                     </td>
                   </tr>
                 ) : (
@@ -543,7 +307,7 @@ export function EmployeesView({
                       </td>
                       <td className="px-4 py-4 text-slate-600 dark:text-slate-300">{emp.schedule}</td>
                       <td className="px-4 py-4">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                           <span className="size-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" aria-hidden="true" />
                           {emp.status}
                         </span>
@@ -552,9 +316,10 @@ export function EmployeesView({
                         <button
                           type="button"
                           onClick={() => openEmployeeDetail(emp)}
-                          className="rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-semibold text-slate-800 dark:text-white hover:border-[#3B68F7] cursor-pointer"
+                          className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer"
                         >
-                          Ver detalhe e histórico
+                          <Eye className="size-3.5" aria-hidden="true" />
+                          <span>Detalhes e escala</span>
                         </button>
                       </td>
                     </tr>
@@ -566,7 +331,7 @@ export function EmployeesView({
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {contracts.length === 0 ? (
-              <p className="text-xs text-slate-500 col-span-2 py-6 text-center">
+              <p className="text-xs text-slate-500 col-span-2 py-8 text-center">
                 Nenhum contrato ativo para exibir cobertura por posto.
               </p>
             ) : (
@@ -584,7 +349,7 @@ export function EmployeesView({
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">{c.workstation}</p>
                       </div>
-                      <span className="rounded-full bg-blue-100 dark:bg-blue-950/80 px-3 py-1 text-xs font-bold text-[#3B68F7] dark:text-blue-300">
+                      <span className="rounded-full bg-blue-100 dark:bg-blue-950/80 px-3 py-1 text-xs font-bold text-[#3B68F7] dark:text-blue-300 tabular-nums">
                         {allocated.length} alocado(s)
                       </span>
                     </div>
@@ -619,125 +384,307 @@ export function EmployeesView({
         )}
       </section>
 
-      <section id="novo-colaborador" className="rounded-[28px] solid-surface p-6 sm:p-7 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">Cadastrar colaborador e escala</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Registre o profissional e vincule ao contrato ativo e turno operacional.
+      {/* Modal: Cadastrar colaborador */}
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Novo colaborador e escala"
+        description={`Cadastre o profissional e vincule ao contrato e turno em ${tenantName}.`}
+        size="md"
+      >
+        <form action={createAction} className="space-y-4">
+          {state?.error && (
+            <p
+              role="alert"
+              className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-3.5 py-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300"
+            >
+              {state.error}
             </p>
-          </div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            <Building2 className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
-            Empresa ativa: <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
-          </span>
-        </div>
+          )}
 
-        {state?.error && (
-          <p
-            role="alert"
-            className="rounded-2xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-4 py-3 text-xs font-semibold text-rose-700 dark:text-rose-300"
-          >
-            {state.error}
-          </p>
-        )}
-
-        {newFormConflict && (
-          <div
-            role="status"
-            className="rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200"
-          >
-            <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
-            <div>
-              <p className="font-bold">Aviso de conflito / sobreposição de turno no mesmo contrato</p>
-              <p className="mt-0.5">
-                O colaborador <strong>{newFormConflict.name}</strong> já cobre o turno{" "}
-                <strong>{formSchedule}</strong> neste contrato. Se desejar cobertura complementar, prossiga com o
-                salvamento ou escolha outro turno.
-              </p>
+          {newFormConflict && (
+            <div
+              role="status"
+              className="rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200"
+            >
+              <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
+              <span>
+                <strong>Sobreposição detectada:</strong> {newFormConflict.name} já cobre o turno{" "}
+                <strong>{formSchedule}</strong> neste contrato.
+              </span>
             </div>
-          </div>
-        )}
+          )}
 
-        <form action={createAction} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="space-y-1">
-            <label htmlFor="emp-name" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          <div className="space-y-1.5">
+            <label htmlFor="modal-emp-name" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
               Nome do colaborador *
             </label>
             <input
-              ref={nameInputRef}
-              id="emp-name"
+              id="modal-emp-name"
               name="name"
               required
-              placeholder="Ex.: Marcos Oliveira"
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              placeholder="Ex.: Marcos Oliveira…"
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
             />
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="emp-role" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          <div className="space-y-1.5">
+            <label htmlFor="modal-emp-role" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
               Função / cargo *
             </label>
             <input
-              id="emp-role"
+              id="modal-emp-role"
               name="roleTitle"
               required
-              placeholder="Ex.: Eletricista de manutenção"
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              placeholder="Ex.: Eletricista de manutenção…"
+              className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
             />
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="emp-contract" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Contrato vinculado
-            </label>
-            <select
-              id="emp-contract"
-              name="contractId"
-              value={formContractId}
-              onChange={(e) => setFormContractId(e.target.value)}
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-            >
-              <option value="">Reserva técnica</option>
-              {contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code.replace("#", "")} · {c.clientName}
-                </option>
-              ))}
-            </select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-emp-contract" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Contrato vinculado
+              </label>
+              <select
+                id="modal-emp-contract"
+                name="contractId"
+                value={formContractId}
+                onChange={(e) => setFormContractId(e.target.value)}
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                <option value="">Reserva técnica</option>
+                {contracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code.replace("#", "")} · {c.clientName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-emp-schedule" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Turno / escala
+              </label>
+              <select
+                id="modal-emp-schedule"
+                name="schedule"
+                value={formSchedule}
+                onChange={(e) => setFormSchedule(e.target.value)}
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                {SCHEDULES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="emp-schedule" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Turno / escala
-            </label>
-            <select
-              id="emp-schedule"
-              name="schedule"
-              value={formSchedule}
-              onChange={(e) => setFormSchedule(e.target.value)}
-              className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          <div className="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-5 py-2 text-xs font-semibold cursor-pointer"
             >
-              {SCHEDULES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
+              Cancelar
+            </button>
             <button
               type="submit"
               disabled={pending}
-              className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
             >
-              {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-              <span>Salvar colaborador em {tenantName}</span>
+              {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              <span>Salvar colaborador</span>
             </button>
           </div>
         </form>
-      </section>
+      </Modal>
+
+      {/* Modal: Detalhe, histórico e troca de escala do colaborador */}
+      <Modal
+        open={Boolean(selectedEmp)}
+        onClose={() => setSelectedEmp(null)}
+        title={selectedEmp?.name ?? ""}
+        description={selectedEmp ? `${selectedEmp.roleTitle} · ${selectedEmp.status}` : undefined}
+        size="xl"
+      >
+        {selectedEmp && (
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-3 text-xs">
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
+                  <span className="inline-flex items-center gap-1.5">
+                    <History className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
+                    Ordens de serviço
+                  </span>
+                  <span className="tabular-nums">{empOrders.length}</span>
+                </div>
+                {empOrders.length === 0 ? (
+                  <p className="text-slate-500">Nenhuma OS atribuída.</p>
+                ) : (
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
+                    {empOrders.slice(0, 3).map((o) => (
+                      <li key={o.id} className="truncate">
+                        <strong>{o.code.replace("#", "")}</strong> · {o.status}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
+                  <span>EPIs entregues</span>
+                  <span className="tabular-nums">{empEpis.length}</span>
+                </div>
+                {empEpis.length === 0 ? (
+                  <p className="text-slate-500">Sem entregas registradas.</p>
+                ) : (
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
+                    {empEpis.slice(0, 3).map((d) => (
+                      <li key={d.id} className="truncate">
+                        <strong>{d.caNumber}</strong> · {d.epiName}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between font-bold text-slate-900 dark:text-white">
+                  <span>Cautelas / estoque</span>
+                  <span className="tabular-nums">{empMovements.length}</span>
+                </div>
+                {empMovements.length === 0 ? (
+                  <p className="text-slate-500">Sem movimentações.</p>
+                ) : (
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-300">
+                    {empMovements.slice(0, 3).map((m) => (
+                      <li key={m.id} className="truncate">
+                        <strong>{m.movementType}</strong> · {m.itemSku}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {detailConflict && (
+              <div
+                role="alert"
+                className="rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 p-3.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200"
+              >
+                <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" aria-hidden="true" />
+                <span>
+                  <strong>Conflito de escala:</strong> {detailConflict.name} já ocupa o turno{" "}
+                  <strong>{detailSchedule}</strong> neste contrato.
+                </span>
+              </div>
+            )}
+
+            <form
+              action={async (fd) => {
+                await updateEmployeeScheduleAction(fd);
+                setSelectedEmp(null);
+              }}
+              className="space-y-4 rounded-2xl border border-slate-200 dark:border-white/10 p-4"
+            >
+              <input type="hidden" name="id" value={selectedEmp.id} />
+              <p className="text-xs font-bold text-slate-900 dark:text-white">Alterar alocação ou escala</p>
+
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label htmlFor="detail-contract" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Posto / contrato vinculado
+                  </label>
+                  <select
+                    id="detail-contract"
+                    name="contractId"
+                    value={detailContractId}
+                    onChange={(e) => setDetailContractId(e.target.value)}
+                    className="w-full min-h-10 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="">Reserva técnica</option>
+                    {contracts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code.replace("#", "")} · {c.clientName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="detail-schedule" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Novo turno / escala
+                  </label>
+                  <select
+                    id="detail-schedule"
+                    name="schedule"
+                    value={detailSchedule}
+                    onChange={(e) => setDetailSchedule(e.target.value)}
+                    className="w-full min-h-10 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    {SCHEDULES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="detail-date" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Início da vigência
+                  </label>
+                  <input
+                    id="detail-date"
+                    name="effectiveDate"
+                    type="date"
+                    value={effectiveDate}
+                    onChange={(e) => setEffectiveDate(e.target.value)}
+                    className="w-full min-h-10 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="detail-status" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Situação operacional
+                  </label>
+                  <select
+                    id="detail-status"
+                    name="status"
+                    value={detailStatus}
+                    onChange={(e) => setDetailStatus(e.target.value)}
+                    className="w-full min-h-10 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="Alocado">Alocado</option>
+                    <option value="Disponível">Disponível</option>
+                    <option value="Afastado">Afastado</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmp(null)}
+                  className="min-h-10 rounded-full border border-slate-300 dark:border-white/15 px-4 py-2 text-xs font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="min-h-10 pill-gradient px-5 py-2 text-xs font-bold cursor-pointer"
+                >
+                  Confirmar troca de escala
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

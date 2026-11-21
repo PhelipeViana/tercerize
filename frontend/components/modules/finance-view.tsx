@@ -1,23 +1,19 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
-  BarChart3,
-  Building2,
   Calendar,
   Check,
   CheckCircle2,
-  Coins,
   Loader2,
   Plus,
   RotateCcw,
-  TrendingDown,
-  TrendingUp,
 } from "lucide-react";
 import {
   createFinancialEntryStateAction,
   reconcileFinancialEntryAction,
 } from "@/app/actions/operations";
+import { Modal } from "@/components/ui/modal";
 import type { ContractRow, FinancialEntryRow } from "@/lib/operations/repository";
 
 interface Props {
@@ -31,8 +27,8 @@ function getTodayIso(): string {
 }
 
 export function FinanceView({ tenantName, entries, contracts }: Props) {
-  const descInputRef = useRef<HTMLInputElement>(null);
   const [state, createAction, pending] = useActionState(createFinancialEntryStateAction, undefined);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const competences = useMemo(() => {
     const set = new Set<string>();
@@ -48,6 +44,12 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const [dueDate, setDueDate] = useState(getTodayIso);
   const [formType, setFormType] = useState<"Receita" | "Despesa">("Receita");
   const [formContractId, setFormContractId] = useState<string>("");
+
+  useEffect(() => {
+    if (state?.ok) {
+      setCreateOpen(false);
+    }
+  }, [state]);
 
   const filteredEntries = useMemo(() => {
     return entries.filter((e) => {
@@ -75,62 +77,56 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
   const pendentes = filteredEntries.filter((e) => e.reconciliationStatus === "Pendente").length;
 
   const hasFilters = periodFilter !== "todos" || typeFilter !== "todos" || statusFilter !== "todos";
-  const selectedContract = contracts.find((c) => c.id === formContractId);
 
   return (
     <div className="space-y-5">
-      {/* Cabeçalho com Ação Principal única junto ao título */}
+      {/* Cabeçalho padronizado */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
         <div>
-          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+          <h1 className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight text-balance">
             Gestão financeira
           </h1>
-          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
-            Receitas de contratos, despesas operacionais, período dos totais e conciliação em {tenantName}.
+          <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+            Receitas de contratos, despesas operacionais, visão por competência e conciliação em {tenantName}.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => {
-            descInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-            setTimeout(() => descInputRef.current?.focus(), 60);
-          }}
-          className="inline-flex min-h-11 items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+          onClick={() => setCreateOpen(true)}
+          className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2.5 text-xs sm:text-sm font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
         >
           <Plus className="size-4" aria-hidden="true" />
           <span>Novo lançamento</span>
         </button>
       </div>
 
-      {/* Barra de identificação explícita do período e tratamento de pendências nos totais */}
+      {/* Barra explícita de período */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl solid-surface px-4 py-3 text-xs">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Calendar className="size-4 text-[#3B68F7] dark:text-blue-400 shrink-0" aria-hidden="true" />
           <span className="font-semibold text-slate-700 dark:text-slate-200">
-            Período exibido nos totais: <strong className="text-slate-900 dark:text-white">{periodLabel}</strong>
+            Período nos totais: <strong className="text-slate-900 dark:text-white">{periodLabel}</strong>
           </span>
-          <span className="text-slate-400">·</span>
-          <span className="text-slate-600 dark:text-slate-300">
-            Os totais abaixo incluem lançamentos <strong>conciliados ({conciliados})</strong> e{" "}
-            <strong>pendentes ({pendentes})</strong> do período.
+          <span className="text-slate-500 dark:text-slate-400 tabular-nums">
+            ({conciliados} conciliado(s) e {pendentes} pendente(s))
           </span>
         </div>
 
         <div className="flex items-center gap-2">
           <label htmlFor="top-period-select" className="font-semibold text-slate-600 dark:text-slate-300">
-            Filtrar período:
+            Competência:
           </label>
           <select
             id="top-period-select"
             value={periodFilter}
             onChange={(e) => setPeriodFilter(e.target.value)}
-            className="rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-bold text-slate-900 dark:text-white"
+            className="min-h-9 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-bold text-slate-900 dark:text-white"
           >
-            <option value="todos">Todos os períodos (Acumulado)</option>
+            <option value="todos">Todos os períodos</option>
             {competences.map((comp) => (
               <option key={comp} value={comp}>
-                Competência {comp}
+                {comp}
               </option>
             ))}
           </select>
@@ -140,111 +136,81 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
       {state?.ok && (
         <div
           role="status"
-          className="rounded-3xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-4 flex items-center gap-2.5 text-xs sm:text-sm font-bold text-slate-900 dark:text-white"
+          aria-live="polite"
+          className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-4 flex items-center gap-2.5 text-xs sm:text-sm font-bold text-slate-900 dark:text-white"
         >
           <CheckCircle2 className="size-5 text-emerald-600 shrink-0" aria-hidden="true" />
-          <span>Lançamento financeiro salvo com sucesso na empresa {tenantName}!</span>
+          <span>Lançamento financeiro salvo com sucesso.</span>
         </div>
       )}
 
-      {/* 4 Pastel Glass KPI Cards com indicação de período e pendências */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-emerald-100/80 via-emerald-50/65 to-white/85 dark:from-emerald-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300">
-            <TrendingUp className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Receitas ({periodLabel})
-            </p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
-              R$ {totalReceitas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-              Conciliado: R$ {receitasConciliadas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-          </div>
+      {/* Faixa estruturada de métricas */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200/80 dark:divide-white/10 rounded-[24px] solid-surface overflow-hidden">
+        <div className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Receitas</p>
+          <p className="mt-1 text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums truncate">
+            R$ {totalReceitas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums truncate">
+            Conciliado: R$ {receitasConciliadas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-purple-100/80 via-purple-50/65 to-white/85 dark:from-purple-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-purple-500/15 dark:bg-purple-500/20 text-purple-600 dark:text-purple-300">
-            <TrendingDown className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Despesas ({periodLabel})
-            </p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
-              R$ {totalDespesas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Inclui pendentes e conciliadas</p>
-          </div>
+        <div className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Despesas</p>
+          <p className="mt-1 text-xl sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400 tabular-nums truncate">
+            R$ {totalDespesas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Inclui pendentes e conciliadas</p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-blue-100/80 via-blue-50/65 to-white/85 dark:from-blue-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 dark:bg-blue-500/20 text-[#3B68F7] dark:text-blue-300">
-            <Coins className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Saldo ({periodLabel})</p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
-              R$ {saldo.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">{pendentes} pendente(s) incluído(s)</p>
-          </div>
+        <div className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Saldo líquido</p>
+          <p className="mt-1 text-xl sm:text-2xl font-extrabold text-[#3B68F7] dark:text-blue-400 tabular-nums truncate">
+            R$ {saldo.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+            {pendentes} pendente(s) no período
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-sky-100/80 via-sky-50/65 to-white/85 dark:from-sky-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-sky-600/15 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300">
-            <BarChart3 className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Conciliados</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">{conciliados}</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">de {filteredEntries.length} no período</p>
-          </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Conciliados</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            {conciliados}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+            de {filteredEntries.length} lançamento(s)
+          </p>
         </div>
       </div>
 
-      {/* Main Solid Table Card */}
-      <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
+      {/* Tabela Full-Width */}
+      <section className="rounded-[28px] solid-surface p-5 sm:p-6 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Fluxo de caixa ({filteredEntries.length})
           </h2>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div>
-              <label htmlFor="fin-filter-type" className="sr-only">
-                Filtrar por tipo
-              </label>
-              <select
-                id="fin-filter-type"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
-              >
-                <option value="todos">Tipo: Todos</option>
-                <option value="Receita">Receita</option>
-                <option value="Despesa">Despesa</option>
-              </select>
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Filtrar por tipo"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="min-h-9 rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
+            >
+              <option value="todos">Tipo: Todos</option>
+              <option value="Receita">Receita</option>
+              <option value="Despesa">Despesa</option>
+            </select>
 
-            <div>
-              <label htmlFor="fin-filter-status" className="sr-only">
-                Filtrar por conciliação
-              </label>
-              <select
-                id="fin-filter-status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
-              >
-                <option value="todos">Conciliação: Todas</option>
-                <option value="Conciliado">Conciliado</option>
-                <option value="Pendente">Pendente</option>
-              </select>
-            </div>
+            <select
+              aria-label="Filtrar por conciliação"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="min-h-9 rounded-full border border-slate-200 dark:border-white/15 bg-slate-50 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
+            >
+              <option value="todos">Conciliação: Todas</option>
+              <option value="Conciliado">Conciliado</option>
+              <option value="Pendente">Pendente</option>
+            </select>
 
             {hasFilters && (
               <button
@@ -254,33 +220,43 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                   setTypeFilter("todos");
                   setStatusFilter("todos");
                 }}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="min-h-9 inline-flex items-center gap-1 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
                 <RotateCcw className="size-3" aria-hidden="true" />
-                <span>Limpar filtros</span>
+                <span>Limpar</span>
               </button>
             )}
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-xs sm:text-sm">
             <thead>
-              <tr className="rounded-xl bg-slate-100 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
                 <th className="rounded-l-xl px-4 py-3.5">Tipo</th>
                 <th className="px-4 py-3.5">Contrato</th>
                 <th className="px-4 py-3.5">Descrição</th>
                 <th className="px-4 py-3.5">Vencimento</th>
                 <th className="px-4 py-3.5">Valor</th>
-                <th className="px-4 py-3.5">Situação e histórico</th>
+                <th className="px-4 py-3.5">Situação</th>
                 <th className="rounded-r-xl px-4 py-3.5 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-500">
-                    Nenhum lançamento encontrado para os filtros aplicados em <strong>{tenantName}</strong>.
+                  <td colSpan={7} className="px-4 py-12 text-center space-y-3">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">
+                      Nenhum lançamento encontrado em {tenantName}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCreateOpen(true)}
+                      className="min-h-10 inline-flex items-center gap-2 pill-gradient px-5 py-2 text-xs font-bold cursor-pointer"
+                    >
+                      <Plus className="size-3.5" aria-hidden="true" />
+                      <span>Novo lançamento</span>
+                    </button>
                   </td>
                 </tr>
               ) : (
@@ -288,7 +264,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                   <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                           entry.entryType === "Receita"
                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
                             : "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
@@ -307,7 +283,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                           entry.reconciliationStatus === "Conciliado"
                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
                             : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
@@ -330,7 +306,7 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
                         <input type="hidden" name="id" value={entry.id} />
                         <button
                           type="submit"
-                          className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-800 dark:text-white hover:bg-[#3B68F7] hover:text-white hover:border-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                          className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-800 dark:text-white hover:bg-[#3B68F7] hover:text-white hover:border-[#3B68F7] transition-colors cursor-pointer"
                         >
                           <Check className="size-3" aria-hidden="true" />
                           <span>{entry.reconciliationStatus === "Conciliado" ? "Reabrir" : "Conciliar"}</span>
@@ -345,58 +321,51 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
         </div>
       </section>
 
-      {/* Novo lançamento com campo Valor em branco e confirmação contextual da empresa ativa */}
-      <section id="novo-lancamento" className="rounded-[28px] solid-surface p-6 sm:p-7 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">Novo lançamento financeiro</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              O campo de valor inicia em branco. Informe o montante real acordado antes de salvar.
-            </p>
-          </div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            <Building2 className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
-            Empresa ativa: <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
-          </span>
-        </div>
-
-        {state?.error && (
-          <p
-            role="alert"
-            className="rounded-2xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-4 py-3 text-xs font-semibold text-rose-700 dark:text-rose-300"
-          >
-            {state.error}
-          </p>
-        )}
-
+      {/* Modal: Novo lançamento financeiro */}
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Novo lançamento financeiro"
+        description={`Registre uma receita ou despesa em ${tenantName}. O valor inicia em branco para evitar erros.`}
+        size="md"
+      >
         <form action={createAction} noValidate className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="space-y-1">
-              <label htmlFor="fin-type" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          {state?.error && (
+            <p
+              role="alert"
+              className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-3.5 py-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300"
+            >
+              {state.error}
+            </p>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-fin-type" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Tipo *
               </label>
               <select
-                id="fin-type"
+                id="modal-fin-type"
                 name="entryType"
                 value={formType}
                 onChange={(e) => setFormType(e.target.value as "Receita" | "Despesa")}
-                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
               >
                 <option value="Receita">Receita</option>
                 <option value="Despesa">Despesa</option>
               </select>
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="fin-contract" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-fin-contract" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Contrato vinculado
               </label>
               <select
-                id="fin-contract"
+                id="modal-fin-contract"
                 name="contractId"
                 value={formContractId}
                 onChange={(e) => setFormContractId(e.target.value)}
-                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
               >
                 <option value="">Operacional geral</option>
                 {contracts.map((c) => (
@@ -407,66 +376,63 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
               </select>
             </div>
 
-            <div className="sm:col-span-2 space-y-1">
-              <label htmlFor="fin-desc" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-fin-desc" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Descrição *
               </label>
               <input
-                ref={descInputRef}
-                id="fin-desc"
+                id="modal-fin-desc"
                 name="description"
                 required
                 defaultValue={state?.values?.description ?? ""}
-                placeholder="Ex.: Medição mensal de serviços terceirizados"
-                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                placeholder="Ex.: Medição mensal de serviços terceirizados…"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
               />
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="fin-amount" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-fin-amount" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Valor (R$) *
               </label>
               <input
-                id="fin-amount"
+                id="modal-fin-amount"
                 name="amount"
                 type="text"
                 inputMode="decimal"
                 defaultValue={state?.values?.amount ?? ""}
-                placeholder="Ex.: 1.500,00 ou 150,50"
+                placeholder="Ex.: 1.500,00…"
                 aria-invalid={state?.field === "amount"}
                 required
-                className={`w-full rounded-full border bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 ${
-                  state?.field === "amount"
-                    ? "border-rose-400 focus-visible:ring-rose-500"
-                    : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white ${
+                  state?.field === "amount" ? "border-rose-400" : "border-slate-300 dark:border-white/15"
                 }`}
               />
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="fin-due" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-fin-due" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Vencimento *
               </label>
               <input
-                id="fin-due"
+                id="modal-fin-due"
                 name="dueDate"
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
                 required
-                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
               />
             </div>
 
-            <div className="space-y-1">
-              <label htmlFor="fin-status" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-fin-status" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Situação inicial
               </label>
               <select
-                id="fin-status"
+                id="modal-fin-status"
                 name="status"
                 defaultValue="Pendente"
-                className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
               >
                 <option value="Pendente">Pendente</option>
                 <option value="Conciliado">Conciliado</option>
@@ -474,28 +440,25 @@ export function FinanceView({ tenantName, entries, contracts }: Props) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <span className="text-slate-700 dark:text-slate-200">
-              <strong>Confirmação para {tenantName}:</strong> Registrar <strong>{formType}</strong> vinculada a{" "}
-              <strong>
-                {selectedContract
-                  ? `${selectedContract.code.replace("#", "")} (${selectedContract.clientName})`
-                  : "Operacional geral"}
-              </strong>{" "}
-              com vencimento em <strong>{dueDate.split("-").reverse().join("/")}</strong>.
-            </span>
-
+          <div className="flex justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 px-5 py-2 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
             <button
               type="submit"
               disabled={pending}
-              className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
             >
-              {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-              <span>Salvar lançamento em {tenantName}</span>
+              {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              <span>Salvar lançamento</span>
             </button>
           </div>
         </form>
-      </section>
+      </Modal>
     </div>
   );
 }

@@ -1,14 +1,10 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Archive,
   ArrowLeftRight,
-  Building2,
-  Check,
   CheckCircle2,
-  Coins,
   Loader2,
   PackagePlus,
 } from "lucide-react";
@@ -16,6 +12,7 @@ import {
   createInventoryItemStateAction,
   createInventoryMovementStateAction,
 } from "@/app/actions/operations";
+import { Modal } from "@/components/ui/modal";
 import type {
   EmployeeRow,
   InventoryItemRow,
@@ -38,7 +35,8 @@ export function InventoryView({
   employees,
   serviceOrders,
 }: Props) {
-  const [activePanel, setActivePanel] = useState<"movimentar" | "novo-item">("movimentar");
+  const [movOpen, setMovOpen] = useState(false);
+  const [itemOpen, setItemOpen] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<"todos" | "cautelas">("todos");
 
   const [movState, movAction, movPending] = useActionState(createInventoryMovementStateAction, undefined);
@@ -48,13 +46,7 @@ export function InventoryView({
   const selectedItem = items.find((i) => i.id === selectedItemId) ?? items[0];
 
   const allowedOperations = useMemo(() => {
-    if (!selectedItem) {
-      return [
-        { value: "Saída", label: "Saída (aplicação em OS)" },
-        { value: "Entrada", label: "Entrada (reposição de estoque)" },
-      ];
-    }
-    if (selectedItem.category === "Material") {
+    if (!selectedItem || selectedItem.category === "Material") {
       return [
         { value: "Saída", label: "Saída (aplicação em OS)" },
         { value: "Entrada", label: "Entrada (reposição de estoque)" },
@@ -72,6 +64,19 @@ export function InventoryView({
     selectedItem?.category === "Ferramenta" ? "Cautela" : "Saída",
   );
   const [qtyInput, setQtyInput] = useState<string>("1");
+
+  useEffect(() => {
+    if (movState?.ok) {
+      setMovOpen(false);
+      setQtyInput("1");
+    }
+  }, [movState]);
+
+  useEffect(() => {
+    if (itemState?.ok) {
+      setItemOpen(false);
+    }
+  }, [itemState]);
 
   const handleItemChange = (newId: string) => {
     setSelectedItemId(newId);
@@ -99,29 +104,23 @@ export function InventoryView({
 
   return (
     <div className="space-y-5">
-      {/* Cabeçalho com Ações Distintas posicionadas junto ao título */}
+      {/* Cabeçalho padronizado */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-1">
         <div>
-          <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+          <h1 className="text-2xl sm:text-[32px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight text-balance">
             Almoxarifado e ativos
           </h1>
-          <p className="mt-1 text-xs sm:text-[15px] font-normal text-slate-600 dark:text-slate-400">
-            Controle de saldo, operações por categoria, seletor de OS e cautelas em {tenantName}.
+          <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+            Posição de estoque, movimentações auditáveis, vínculo com OS e cautelas técnicas em {tenantName}.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={() => {
-              setActivePanel("movimentar");
-              document.getElementById("painel-operacao")?.scrollIntoView({ behavior: "smooth" });
-            }}
-            className={`inline-flex min-h-11 items-center gap-2 px-5 py-2.5 text-xs sm:text-sm cursor-pointer transition-colors ${
-              activePanel === "movimentar"
-                ? "pill-gradient"
-                : "rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-white"
-            }`}
+            disabled={items.length === 0}
+            onClick={() => setMovOpen(true)}
+            className="min-h-11 inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
           >
             <ArrowLeftRight className="size-4" aria-hidden="true" />
             <span>Movimentar estoque</span>
@@ -129,15 +128,8 @@ export function InventoryView({
 
           <button
             type="button"
-            onClick={() => {
-              setActivePanel("novo-item");
-              document.getElementById("painel-operacao")?.scrollIntoView({ behavior: "smooth" });
-            }}
-            className={`inline-flex min-h-11 items-center gap-2 px-5 py-2.5 text-xs sm:text-sm cursor-pointer transition-colors ${
-              activePanel === "novo-item"
-                ? "pill-gradient"
-                : "rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-white"
-            }`}
+            onClick={() => setItemOpen(true)}
+            className="min-h-11 inline-flex items-center gap-2 pill-gradient px-5 py-2.5 text-xs sm:text-sm font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
           >
             <PackagePlus className="size-4" aria-hidden="true" />
             <span>Novo item</span>
@@ -145,71 +137,70 @@ export function InventoryView({
         </div>
       </div>
 
-      {/* 4 Pastel Glass KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-blue-100/80 via-blue-50/65 to-white/85 dark:from-blue-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-blue-500/15 dark:bg-blue-500/20 text-[#3B68F7] dark:text-blue-300">
-            <Archive className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">SKUs ativos</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">{items.length}</p>
-          </div>
+      {movState?.ok && movState.message && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-4 flex items-center gap-2.5 text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-200"
+        >
+          <CheckCircle2 className="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
+          <span>{movState.message}</span>
         </div>
+      )}
 
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-purple-100/80 via-purple-50/65 to-white/85 dark:from-purple-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-purple-500/15 dark:bg-purple-500/20 text-purple-600 dark:text-purple-300">
-            <Check className="size-6 stroke-[2]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Ferramentas</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
-              {ferramentasCount}
-            </p>
-          </div>
+      {itemState?.ok && itemState.sku && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-4 flex items-center gap-2.5 text-xs sm:text-sm font-bold text-emerald-900 dark:text-emerald-200"
+        >
+          <CheckCircle2 className="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
+          <span>Item {itemState.sku} cadastrado no almoxarifado.</span>
         </div>
+      )}
 
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-emerald-100/80 via-emerald-50/65 to-white/85 dark:from-emerald-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300">
-            <ArrowLeftRight className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Movimentações</p>
-            <p className="text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
-              {movements.length}
-            </p>
-          </div>
+      {/* Faixa estruturada de métricas */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200/80 dark:divide-white/10 rounded-[24px] solid-surface overflow-hidden">
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">SKUs cadastrados</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            {items.length}
+          </p>
         </div>
-
-        <div className="rounded-[24px] border border-white/90 dark:border-white/10 bg-gradient-to-br from-sky-100/80 via-sky-50/65 to-white/85 dark:from-sky-950/55 dark:via-slate-900/70 dark:to-slate-900/80 backdrop-blur-xl p-5 shadow-[0_8px_24px_rgba(31,38,135,0.05)] flex items-center gap-4">
-          <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl bg-sky-600/15 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300">
-            <Coins className="size-6 stroke-[1.75]" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Valor em estoque</p>
-            <p className="text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5 truncate">
-              R$ {totalValorEstoque.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-          </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Ferramentas (cautela)</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+            {ferramentasCount}
+          </p>
+        </div>
+        <div className="p-4 sm:p-5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Movimentações</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+            {movements.length}
+          </p>
+        </div>
+        <div className="p-4 sm:p-5 min-w-0">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Valor em estoque</p>
+          <p className="mt-1 text-xl sm:text-2xl font-extrabold text-[#3B68F7] dark:text-blue-400 tabular-nums truncate">
+            R$ {totalValorEstoque.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+          </p>
         </div>
       </div>
 
       {/* Posição atual de estoque */}
-      <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white">
-            Posição atual de estoque ({items.length})
-          </h2>
-        </div>
+      <section className="rounded-[28px] solid-surface p-5 sm:p-6 space-y-4">
+        <h2 className="text-base font-bold text-slate-900 dark:text-white">
+          Posição atual de estoque ({items.length})
+        </h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-xs sm:text-sm">
             <thead>
-              <tr className="rounded-xl bg-slate-100 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
                 <th className="rounded-l-xl px-4 py-3.5">SKU</th>
-                <th className="px-4 py-3.5">Descrição do item</th>
+                <th className="px-4 py-3.5">Descrição</th>
                 <th className="px-4 py-3.5">Categoria</th>
-                <th className="px-4 py-3.5">Saldo disponível</th>
+                <th className="px-4 py-3.5">Saldo</th>
                 <th className="px-4 py-3.5">Valor unitário</th>
                 <th className="px-4 py-3.5">Nível</th>
                 <th className="rounded-r-xl px-4 py-3.5 text-right">Ação</th>
@@ -218,15 +209,24 @@ export function InventoryView({
             <tbody className="divide-y divide-slate-200/70 dark:divide-white/10">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-500">
-                    Nenhum item cadastrado no almoxarifado de <strong>{tenantName}</strong>. Clique em &ldquo;Novo
-                    item&rdquo; para iniciar o estoque.
+                  <td colSpan={7} className="px-4 py-12 text-center space-y-3">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">
+                      Nenhum item cadastrado no almoxarifado
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setItemOpen(true)}
+                      className="min-h-10 inline-flex items-center gap-2 pill-gradient px-5 py-2 text-xs font-bold cursor-pointer"
+                    >
+                      <PackagePlus className="size-3.5" aria-hidden="true" />
+                      <span>Cadastrar primeiro item</span>
+                    </button>
                   </td>
                 </tr>
               ) : (
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-4 font-bold text-slate-900 dark:text-white">{item.sku}</td>
+                    <td className="px-4 py-4 font-mono font-bold text-slate-900 dark:text-white">{item.sku}</td>
                     <td className="px-4 py-4 font-medium text-slate-800 dark:text-slate-100">{item.description}</td>
                     <td className="px-4 py-4 text-slate-600 dark:text-slate-300">{item.category}</td>
                     <td className="px-4 py-4 font-bold text-slate-900 dark:text-white tabular-nums">
@@ -237,7 +237,7 @@ export function InventoryView({
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                           item.level === "Normal"
                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300"
                             : "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
@@ -257,10 +257,9 @@ export function InventoryView({
                         type="button"
                         onClick={() => {
                           handleItemChange(item.id);
-                          setActivePanel("movimentar");
-                          document.getElementById("painel-operacao")?.scrollIntoView({ behavior: "smooth" });
+                          setMovOpen(true);
                         }}
-                        className="rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-semibold text-slate-800 dark:text-white hover:border-[#3B68F7] cursor-pointer"
+                        className="min-h-9 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer"
                       >
                         Movimentar
                       </button>
@@ -273,352 +272,8 @@ export function InventoryView({
         </div>
       </section>
 
-      {/* Painel separado: Movimentar estoque OU Cadastrar novo item */}
-      <section id="painel-operacao" className="rounded-[28px] solid-surface p-6 sm:p-7 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 dark:border-white/10 pb-4">
-          <div
-            role="tablist"
-            aria-label="Selecionar formulário de almoxarifado"
-            className="inline-flex items-center rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-800 p-1"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activePanel === "movimentar"}
-              onClick={() => setActivePanel("movimentar")}
-              className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
-                activePanel === "movimentar"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
-                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
-              }`}
-            >
-              Movimentar estoque
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activePanel === "novo-item"}
-              onClick={() => setActivePanel("novo-item")}
-              className={`rounded-full px-5 py-2 text-xs sm:text-sm transition-colors cursor-pointer ${
-                activePanel === "novo-item"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
-                  : "font-medium text-slate-600 dark:text-slate-300 hover:text-slate-950"
-              }`}
-            >
-              Novo item
-            </button>
-          </div>
-
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            <Building2 className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
-            Empresa ativa: <strong className="text-slate-900 dark:text-white">{tenantName}</strong>
-          </span>
-        </div>
-
-        {activePanel === "movimentar" ? (
-          <form action={movAction} noValidate className="space-y-4">
-            {movState?.ok && movState.message && (
-              <div
-                role="status"
-                className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-3.5 flex items-center gap-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-200"
-              >
-                <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>{movState.message}</span>
-              </div>
-            )}
-
-            {movState?.error && (
-              <div
-                role="alert"
-                className="rounded-2xl border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 p-3.5 flex items-start gap-2.5 text-xs font-semibold text-rose-700 dark:text-rose-200"
-              >
-                <AlertTriangle className="size-4 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
-                <span>{movState.error}</span>
-              </div>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="space-y-1">
-                <label htmlFor="mov-item" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Item selecionado *
-                </label>
-                <select
-                  id="mov-item"
-                  name="itemId"
-                  required
-                  value={selectedItem?.id ?? ""}
-                  onChange={(e) => handleItemChange(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                >
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.sku} · {item.description} [{item.category}] — Saldo: {item.quantity} {item.unit}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="mov-type" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Operação permitida para {selectedItem?.category ?? "item"} *
-                </label>
-                <select
-                  id="mov-type"
-                  name="movementType"
-                  value={movementType}
-                  onChange={(e) => setMovementType(e.target.value)}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                >
-                  {allowedOperations.map((op) => (
-                    <option key={op.value} value={op.value}>
-                      {op.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-baseline justify-between px-1">
-                  <label htmlFor="mov-qty" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Quantidade *
-                  </label>
-                  {selectedItem && (
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                      Saldo disponível: {currentBalance} {selectedItem.unit}
-                    </span>
-                  )}
-                </div>
-                <input
-                  id="mov-qty"
-                  name="quantity"
-                  type="number"
-                  min={1}
-                  value={qtyInput}
-                  onChange={(e) => setQtyInput(e.target.value)}
-                  aria-invalid={exceedsBalance || movState?.field === "quantity"}
-                  required
-                  className={`w-full rounded-full border bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 ${
-                    exceedsBalance || movState?.field === "quantity"
-                      ? "border-rose-400 focus-visible:ring-rose-500"
-                      : "border-slate-200 dark:border-white/15 focus-visible:ring-[#3B68F7]"
-                  }`}
-                />
-                {selectedItem && exceedsBalance && (
-                  <p role="alert" className="pl-2 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                    Saldo insuficiente: solicitado {parsedQty} {selectedItem.unit}, disponível {currentBalance}{" "}
-                    {selectedItem.unit}. Corrija a quantidade para prosseguir.
-                  </p>
-                )}
-              </div>
-
-              {movementType === "Saída" && (
-                <div className="space-y-1">
-                  <label htmlFor="mov-os" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Ordem de serviço vinculada
-                  </label>
-                  <select
-                    id="mov-os"
-                    name="serviceOrderId"
-                    className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                  >
-                    <option value="">Uso operacional geral</option>
-                    {serviceOrders.map((os) => (
-                      <option key={os.id} value={os.id}>
-                        {os.code.replace("#", "")} · {os.clientName} ({os.status})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label htmlFor="mov-emp" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  {movementType === "Cautela" || movementType === "Devolução"
-                    ? "Técnico responsável pela cautela *"
-                    : "Técnico / colaborador responsável"}
-                </label>
-                <select
-                  id="mov-emp"
-                  name="employeeId"
-                  required={movementType === "Cautela" || movementType === "Devolução"}
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                >
-                  <option value="">
-                    {movementType === "Cautela" || movementType === "Devolução"
-                      ? "Selecione o técnico responsável…"
-                      : "Almoxarifado central"}
-                  </option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.roleTitle})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="mov-notes" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Observação / justificativa
-                </label>
-                <input
-                  id="mov-notes"
-                  name="notes"
-                  placeholder="Ex.: Aplicado no atendimento técnico em campo"
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-            </div>
-
-            {/* Resumo pré-confirmação repetindo nome da empresa, item e mudança esperada */}
-            {selectedItem && (
-              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="text-slate-700 dark:text-slate-200">
-                  <strong>Confirmação para {tenantName}:</strong> {movementType} de{" "}
-                  <strong>
-                    {parsedQty} {selectedItem.unit}
-                  </strong>{" "}
-                  do item <strong>{selectedItem.sku}</strong> ({selectedItem.description}).{" "}
-                  <span className={exceedsBalance ? "text-rose-600 font-bold" : "font-bold"}>
-                    Mudança esperada no saldo: {currentBalance} {selectedItem.unit} → {expectedBalance}{" "}
-                    {selectedItem.unit}
-                  </span>
-                  .
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={movPending}
-                  className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                >
-                  {movPending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-                  <span>Confirmar movimentação em {tenantName}</span>
-                </button>
-              </div>
-            )}
-          </form>
-        ) : (
-          <form action={itemAction} className="space-y-4">
-            {itemState?.ok && (
-              <div
-                role="status"
-                className="rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/50 p-3.5 flex items-center gap-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-200"
-              >
-                <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>Item {itemState.sku} cadastrado com sucesso no almoxarifado de {tenantName}!</span>
-              </div>
-            )}
-
-            {itemState?.error && (
-              <p
-                role="alert"
-                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700"
-              >
-                {itemState.error}
-              </p>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="space-y-1">
-                <label htmlFor="item-sku" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Código SKU *
-                </label>
-                <input
-                  id="item-sku"
-                  name="sku"
-                  required
-                  placeholder="Ex.: CAB-UTP-CAT6"
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="item-cat" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Categoria *
-                </label>
-                <select
-                  id="item-cat"
-                  name="category"
-                  defaultValue="Material"
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                >
-                  <option value="Material">Material / insumo de consumo</option>
-                  <option value="Ferramenta">Ferramenta (sujeita a cautela)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="item-desc" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Descrição do item *
-                </label>
-                <input
-                  id="item-desc"
-                  name="description"
-                  required
-                  placeholder="Ex.: Cabo UTP Cat6 (Caixa 305m)"
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="item-qty" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Saldo inicial *
-                </label>
-                <input
-                  id="item-qty"
-                  name="quantity"
-                  type="number"
-                  min={0}
-                  placeholder="Ex.: 5"
-                  required
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="item-unit" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Unidade (padrão: un.) *
-                </label>
-                <input
-                  id="item-unit"
-                  name="unit"
-                  defaultValue="un."
-                  required
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="item-val" className="block pl-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Valor unitário (R$) *
-                </label>
-                <input
-                  id="item-val"
-                  name="unitValue"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Ex.: 120,00"
-                  required
-                  className="w-full rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                disabled={itemPending}
-                className="min-h-10 rounded-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold py-2.5 px-6 text-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-              >
-                {itemPending && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-                <span>Salvar item em {tenantName}</span>
-              </button>
-            </div>
-          </form>
-        )}
-      </section>
-
-      {/* Histórico auditável com Saldo anterior -> Alteração -> Saldo final */}
-      <section className="rounded-[28px] solid-surface p-5 sm:p-7 space-y-4">
+      {/* Histórico auditável */}
+      <section className="rounded-[28px] solid-surface p-5 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Histórico de movimentações e cautelas ({filteredMovements.length})
@@ -628,9 +283,9 @@ export function InventoryView({
             <button
               type="button"
               onClick={() => setHistoryFilter("todos")}
-              className={`rounded-full px-4 py-1 text-xs cursor-pointer ${
+              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${
                 historyFilter === "todos"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
                   : "font-medium text-slate-600 dark:text-slate-300"
               }`}
             >
@@ -639,9 +294,9 @@ export function InventoryView({
             <button
               type="button"
               onClick={() => setHistoryFilter("cautelas")}
-              className={`rounded-full px-4 py-1 text-xs cursor-pointer ${
+              className={`min-h-8 rounded-full px-4 py-1 text-xs cursor-pointer ${
                 historyFilter === "cautelas"
-                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-xs"
+                  ? "bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white shadow-2xs"
                   : "font-medium text-slate-600 dark:text-slate-300"
               }`}
             >
@@ -653,11 +308,11 @@ export function InventoryView({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
-              <tr className="rounded-xl bg-slate-100 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-700 dark:text-slate-200">
                 <th className="rounded-l-xl px-4 py-3">Data / hora</th>
                 <th className="px-4 py-3">SKU / Item</th>
                 <th className="px-4 py-3">Operação</th>
-                <th className="px-4 py-3">Saldo anterior → Alteração → Final</th>
+                <th className="px-4 py-3">Saldo (antes → alteração → final)</th>
                 <th className="px-4 py-3">Responsável / OS</th>
                 <th className="rounded-r-xl px-4 py-3">Observação</th>
               </tr>
@@ -666,7 +321,7 @@ export function InventoryView({
               {filteredMovements.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-500">
-                    Nenhuma movimentação registrada para este filtro.
+                    Nenhuma movimentação registrada.
                   </td>
                 </tr>
               ) : (
@@ -678,7 +333,7 @@ export function InventoryView({
                         {m.createdAt}
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="font-bold text-slate-900 dark:text-white">{m.itemSku}</span> ·{" "}
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">{m.itemSku}</span> ·{" "}
                         <span className="text-slate-700 dark:text-slate-300">{m.itemDescription}</span>
                       </td>
                       <td className="px-4 py-3.5">
@@ -694,11 +349,11 @@ export function InventoryView({
                       </td>
                       <td className="px-4 py-3.5 font-mono text-xs tabular-nums">
                         <span className="text-slate-500">{m.previousQuantity}</span>
-                        <span className="mx-1.5 font-bold text-slate-400">→</span>
+                        <span className="mx-1.5 text-slate-400">→</span>
                         <span className={isOut ? "font-bold text-rose-600" : "font-bold text-emerald-600"}>
                           {isOut ? `-${m.quantity}` : `+${m.quantity}`}
                         </span>
-                        <span className="mx-1.5 font-bold text-slate-400">→</span>
+                        <span className="mx-1.5 text-slate-400">→</span>
                         <strong className="text-slate-900 dark:text-white">
                           {m.newQuantity} {m.unit}
                         </strong>
@@ -720,6 +375,308 @@ export function InventoryView({
           </table>
         </div>
       </section>
+
+      {/* Modal: Movimentar estoque */}
+      <Modal
+        open={movOpen}
+        onClose={() => setMovOpen(false)}
+        title="Movimentar estoque"
+        description={`Registre entrada, saída ou cautela técnica com prévia de saldo em ${tenantName}.`}
+        size="lg"
+      >
+        <form action={movAction} noValidate className="space-y-4">
+          {movState?.error && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 p-3.5 flex items-start gap-2.5 text-xs font-semibold text-rose-700 dark:text-rose-200"
+            >
+              <AlertTriangle className="size-4 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
+              <span>{movState.error}</span>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-mov-item" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Item *
+              </label>
+              <select
+                id="modal-mov-item"
+                name="itemId"
+                required
+                value={selectedItem?.id ?? ""}
+                onChange={(e) => handleItemChange(e.target.value)}
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              >
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.sku} · {item.description} [{item.category}] — Saldo: {item.quantity} {item.unit}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-mov-type" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Operação *
+              </label>
+              <select
+                id="modal-mov-type"
+                name="movementType"
+                value={movementType}
+                onChange={(e) => setMovementType(e.target.value)}
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              >
+                {allowedOperations.map((op) => (
+                  <option key={op.value} value={op.value}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="modal-mov-qty" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Quantidade *
+                </label>
+                {selectedItem && (
+                  <span className="text-[11px] font-bold text-slate-500 tabular-nums">
+                    Disponível: {currentBalance} {selectedItem.unit}
+                  </span>
+                )}
+              </div>
+              <input
+                id="modal-mov-qty"
+                name="quantity"
+                type="number"
+                min={1}
+                value={qtyInput}
+                onChange={(e) => setQtyInput(e.target.value)}
+                aria-invalid={exceedsBalance || movState?.field === "quantity"}
+                required
+                className={`w-full min-h-11 rounded-2xl border bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white ${
+                  exceedsBalance ? "border-rose-400" : "border-slate-300 dark:border-white/15"
+                }`}
+              />
+              {selectedItem && exceedsBalance && (
+                <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                  Saldo insuficiente (disponível: {currentBalance} {selectedItem.unit}).
+                </p>
+              )}
+            </div>
+
+            {movementType === "Saída" && (
+              <div className="space-y-1.5">
+                <label htmlFor="modal-mov-os" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Ordem de serviço vinculada
+                </label>
+                <select
+                  id="modal-mov-os"
+                  name="serviceOrderId"
+                  className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+                >
+                  <option value="">Uso operacional geral</option>
+                  {serviceOrders.map((os) => (
+                    <option key={os.id} value={os.id}>
+                      {os.code.replace("#", "")} · {os.clientName} ({os.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-mov-emp" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {movementType === "Cautela" || movementType === "Devolução"
+                  ? "Técnico responsável *"
+                  : "Colaborador responsável"}
+              </label>
+              <select
+                id="modal-mov-emp"
+                name="employeeId"
+                required={movementType === "Cautela" || movementType === "Devolução"}
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              >
+                <option value="">
+                  {movementType === "Cautela" || movementType === "Devolução"
+                    ? "Selecione o técnico…"
+                    : "Almoxarifado central"}
+                </option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.roleTitle})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-mov-notes" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Observação / justificativa
+              </label>
+              <input
+                id="modal-mov-notes"
+                name="notes"
+                placeholder="Ex.: Aplicado no atendimento técnico em campo…"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          {selectedItem && (
+            <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-3 text-xs text-slate-700 dark:text-slate-200 tabular-nums">
+              Prévia do saldo de <strong>{selectedItem.sku}</strong>:{" "}
+              <strong>
+                {currentBalance} {selectedItem.unit} → {expectedBalance} {selectedItem.unit}
+              </strong>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setMovOpen(false)}
+              className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 px-5 py-2 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={movPending || exceedsBalance}
+              className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
+            >
+              {movPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              <span>Confirmar movimentação</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Cadastrar novo item */}
+      <Modal
+        open={itemOpen}
+        onClose={() => setItemOpen(false)}
+        title="Cadastrar novo item no almoxarifado"
+        description={`Defina SKU, categoria (material ou ferramenta), saldo inicial e valor unitário em ${tenantName}.`}
+        size="md"
+      >
+        <form action={itemAction} className="space-y-4">
+          {itemState?.error && (
+            <p
+              role="alert"
+              className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-700"
+            >
+              {itemState.error}
+            </p>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="modal-item-sku" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Código SKU *
+              </label>
+              <input
+                id="modal-item-sku"
+                name="sku"
+                spellCheck={false}
+                required
+                placeholder="Ex.: CAB-UTP-CAT6…"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 font-mono text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-item-cat" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Categoria *
+              </label>
+              <select
+                id="modal-item-cat"
+                name="category"
+                defaultValue="Material"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              >
+                <option value="Material">Material / insumo</option>
+                <option value="Ferramenta">Ferramenta (cautela)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-item-desc" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Descrição do item *
+              </label>
+              <input
+                id="modal-item-desc"
+                name="description"
+                required
+                placeholder="Ex.: Cabo UTP Cat6 (Caixa 305m)…"
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-item-qty" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Saldo inicial *
+              </label>
+              <input
+                id="modal-item-qty"
+                name="quantity"
+                type="number"
+                min={0}
+                placeholder="Ex.: 5…"
+                required
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="modal-item-unit" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Unidade *
+              </label>
+              <input
+                id="modal-item-unit"
+                name="unit"
+                defaultValue="un."
+                required
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="modal-item-val" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Valor unitário (R$) *
+              </label>
+              <input
+                id="modal-item-val"
+                name="unitValue"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ex.: 120,00…"
+                required
+                className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setItemOpen(false)}
+              className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 px-5 py-2 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={itemPending}
+              className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
+            >
+              {itemPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              <span>Salvar item</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

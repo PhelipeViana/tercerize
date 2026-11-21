@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardList,
+  HelpCircle,
   Layers,
   LogOut,
   Menu,
@@ -26,6 +27,7 @@ import { logout, switchTenantAction } from "@/app/actions/auth";
 import { Logo } from "@/components/brand/logo";
 import { OnboardingBanner } from "@/components/shell/onboarding-banner";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { Modal } from "@/components/ui/modal";
 import type { SessionContext } from "@/lib/auth/repository";
 import type { CompanyRow } from "@/lib/operations/repository";
 import { cn } from "@/lib/utils";
@@ -87,6 +89,7 @@ export function AdminShell({
 }: AdminShellProps) {
   const [open, setOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState("");
   const [switchedNotice, setSwitchedNotice] = useState<string | null>(null);
 
@@ -461,6 +464,16 @@ export function AdminShell({
             )}
 
             <span className="h-5 w-px bg-slate-200 dark:bg-white/10" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => setGuideOpen(true)}
+              aria-label="Abrir guia rápido de usabilidade"
+              title="Guia rápido de uso"
+              className="min-h-10 inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+            >
+              <HelpCircle className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Guia</span>
+            </button>
             <ThemeToggle />
           </div>
         </header>
@@ -511,6 +524,91 @@ export function AdminShell({
           {children}
         </main>
       </div>
+
+      {/* Modal de Guia Rápido de Usabilidade (contextual: MASTER vs Empresa Cliente) */}
+      <Modal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        title={isMasterGlobalMode ? "Guia rápido do ambiente MASTER" : `Guia rápido · ${session.tenant.name}`}
+        description={
+          isMasterGlobalMode
+            ? "Entenda como gerir empresas clientes, acompanhar acessos e alternar para a visão de cada empresa."
+            : "Roteiro objetivo para operar todos os módulos da empresa na ordem recomendada."
+        }
+        size="lg"
+      >
+        {isMasterGlobalMode ? (
+          <div className="space-y-4 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
+            <ol className="space-y-3">
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-4">
+                <p className="font-bold text-slate-900 dark:text-white">1. Cadastrar nova empresa cliente</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Clique em <strong>Nova empresa</strong>, informe Razão social, CNPJ único, Nome e E-mail do
+                  responsável (Dono). O sistema dispara automaticamente o link do <strong>Google Authenticator</strong>{" "}
+                  para o e-mail informado.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-4">
+                <p className="font-bold text-slate-900 dark:text-white">2. Acompanhar se o cliente já acessou</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Na coluna <strong>Acesso do cliente</strong>, veja imediatamente quem está como{" "}
+                  <strong>Já acessou</strong> (com data/hora, total de logins e indicador Online) ou{" "}
+                  <strong>Nunca acessou</strong> (com ação rápida para <strong>Reenviar link</strong>).
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-4">
+                <p className="font-bold text-slate-900 dark:text-white">3. Editar, ativar ou desativar</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Somente o <strong>MASTER</strong> pode editar os dados cadastrais da empresa. Ao{" "}
+                  <strong>Desativar</strong>, todos os usuários não-Master conectados àquela empresa são desconectados
+                  imediatamente.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-4">
+                <p className="font-bold text-slate-900 dark:text-white">4. Ver exatamente como o cliente vê</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Clique em <strong>Ver sistema</strong> (ou escolha a empresa no seletor do topo). O menu mudará para
+                  a visão exata da empresa; use o botão <strong>Voltar para MASTER</strong> no topo quando quiser
+                  retornar.
+                </p>
+              </li>
+            </ol>
+          </div>
+        ) : (
+          <div className="space-y-4 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
+            <ol className="space-y-2.5">
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                <p className="font-bold text-slate-900 dark:text-white">1. Clientes e contratos</p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  Cadastre primeiro o cliente tomador pelo botão <strong>Novo cliente</strong> e depois crie o contrato
+                  com objeto, postos e valor mensal.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                <p className="font-bold text-slate-900 dark:text-white">2. Colaboradores e escalas</p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  Aloque a equipe nos contratos. Clique no nome de qualquer colaborador para ver o histórico de OS,
+                  EPIs e trocar a escala com detecção automática de conflito.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                <p className="font-bold text-slate-900 dark:text-white">3. Ordens de serviço, EPIs, Almoxarifado e Financeiro</p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  Em todos os módulos, o botão principal no topo abre uma janela modal limpa para cadastro, mantendo a
+                  tabela em tela cheia.
+                </p>
+              </li>
+              <li className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                <p className="font-bold text-slate-900 dark:text-white">4. Roles e subpermissões (exclusivo Dono / Master)</p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  Convide outros e-mails com função única nesta empresa. Caso precise bloquear um acesso, o usuário é
+                  desconectado imediatamente.
+                </p>
+              </li>
+            </ol>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
