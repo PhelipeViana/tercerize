@@ -10,6 +10,12 @@ export interface CompanyRow {
   active: boolean;
   hasOpenrouterToken: boolean;
   openrouterTokenHint: string;
+  aiPlanKey: "free" | "standard" | "premium";
+  aiMonthlyMessageLimit: number;
+  aiCreditDepleted: boolean;
+  aiCreditDepletedFrom: string;
+  aiMessagesThisMonth: number;
+  aiTokensThisMonth: number;
   ownerBlocked: boolean;
   ownerTotpConfigured: boolean;
   ownerLastLoginAt: string | null;
@@ -176,6 +182,12 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       active: boolean;
       has_openrouter_token: boolean;
       openrouter_token_hint: string;
+      ai_plan_key: string;
+      ai_monthly_message_limit: number;
+      ai_credit_depleted: boolean;
+      ai_credit_depleted_from: string;
+      ai_messages_this_month: string;
+      ai_tokens_this_month: string;
       owner_blocked: boolean;
       owner_totp_configured: boolean;
       owner_last_login_at: string | null;
@@ -195,6 +207,16 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
               t.active,
               (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
               COALESCE(t.openrouter_token_hint, '') AS openrouter_token_hint,
+              COALESCE(t.ai_plan_key, 'free') AS ai_plan_key,
+              COALESCE(t.ai_monthly_message_limit, 0) AS ai_monthly_message_limit,
+              (t.ai_credit_depleted_at IS NOT NULL) AS ai_credit_depleted,
+              COALESCE(t.ai_credit_depleted_from, '') AS ai_credit_depleted_from,
+              (SELECT count(*) FROM ai_messages m
+                WHERE m.tenant_id = t.id AND m.role = 'assistant'
+                  AND m.created_at >= date_trunc('month', now())) AS ai_messages_this_month,
+              (SELECT COALESCE(sum(m.total_tokens), 0) FROM ai_messages m
+                WHERE m.tenant_id = t.id AND m.role = 'assistant'
+                  AND m.created_at >= date_trunc('month', now())) AS ai_tokens_this_month,
               COALESCE(ou.blocked, false) AS owner_blocked,
               (ou.totp_configured_at IS NOT NULL) AS owner_totp_configured,
               to_char(ou.last_login_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS owner_last_login_at,
@@ -224,6 +246,15 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       active: r.active,
       hasOpenrouterToken: r.has_openrouter_token,
       openrouterTokenHint: r.openrouter_token_hint,
+      aiPlanKey:
+        r.ai_plan_key === "standard" || r.ai_plan_key === "premium"
+          ? r.ai_plan_key
+          : "free",
+      aiMonthlyMessageLimit: Number(r.ai_monthly_message_limit || 0),
+      aiCreditDepleted: Boolean(r.ai_credit_depleted),
+      aiCreditDepletedFrom: r.ai_credit_depleted_from || "",
+      aiMessagesThisMonth: Number(r.ai_messages_this_month || 0),
+      aiTokensThisMonth: Number(r.ai_tokens_this_month || 0),
       ownerBlocked: r.owner_blocked,
       ownerTotpConfigured: r.owner_totp_configured,
       ownerLastLoginAt: r.owner_last_login_at,
@@ -283,6 +314,12 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     active: r.active,
     hasOpenrouterToken: false,
     openrouterTokenHint: "",
+    aiPlanKey: "free",
+    aiMonthlyMessageLimit: 0,
+    aiCreditDepleted: false,
+    aiCreditDepletedFrom: "",
+    aiMessagesThisMonth: 0,
+    aiTokensThisMonth: 0,
     ownerBlocked: false,
     ownerTotpConfigured: true,
     ownerLastLoginAt: null,

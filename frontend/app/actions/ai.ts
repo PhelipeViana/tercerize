@@ -2,24 +2,29 @@
 
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api/server";
+import type { AIPlanKey } from "@/lib/auth/repository";
 
 const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? value.trim() : "");
 
-export type AISettingsActionState =
+export type AIPlanActionState =
   | {
       ok?: boolean;
+      planKey?: AIPlanKey;
       message?: string;
       error?: string;
     }
   | undefined;
 
-export async function updateAISettingsStateAction(
-  _prev: AISettingsActionState,
+export async function updateAIPlanStateAction(
+  _prev: AIPlanActionState,
   formData: FormData,
-): Promise<AISettingsActionState> {
+): Promise<AIPlanActionState> {
+  const key = text(formData.get("key")) as AIPlanKey;
   const rawModels = text(formData.get("models"));
-  const timeoutSeconds = Number(text(formData.get("timeoutSeconds")) || "12");
+  const timeoutSeconds = Number(text(formData.get("timeoutSeconds")) || "15");
   const cooldownSeconds = Number(text(formData.get("cooldownSeconds")) || "180");
+  const maxTokens = Number(text(formData.get("maxTokens")) || "2400");
+  const rateLimitPerHour = Number(text(formData.get("rateLimitPerHour")) || "30");
   const clearCooldowns = formData.get("clearCooldowns") === "on";
 
   const models = rawModels
@@ -32,18 +37,29 @@ export async function updateAISettingsStateAction(
   }
 
   try {
-    const res = await apiFetch("/api/ai/settings", {
+    const res = await apiFetch("/api/ai/plans", {
       method: "POST",
-      body: { models, timeoutSeconds, cooldownSeconds, clearCooldowns },
+      body: {
+        key,
+        models,
+        timeoutSeconds,
+        cooldownSeconds,
+        maxTokens,
+        rateLimitPerHour,
+        clearCooldowns,
+      },
     });
     const data = (await res.json().catch(() => ({}))) as { message?: string };
     if (!res.ok) {
-      return { error: data.message ?? "Não foi possível salvar a configuração de modelos." };
+      return { error: data.message ?? "Não foi possível salvar a configuração do plano." };
     }
     revalidatePath("/admin/companies");
+    revalidatePath("/admin/assistant");
+    const planLabel = key === "premium" ? "Premium" : key === "standard" ? "Padrão" : "Free";
     return {
       ok: true,
-      message: `Cadeia de modelos atualizada (${models.length} modelo(s), timeout de ${timeoutSeconds}s).`,
+      planKey: key,
+      message: `Plano ${planLabel} atualizado (${models.length} modelo(s), timeout ${timeoutSeconds}s, ${rateLimitPerHour} msgs/hora).`,
     };
   } catch {
     return { error: "Servidor indisponível no momento." };
@@ -53,6 +69,10 @@ export async function updateAISettingsStateAction(
 export interface AIChatReplyResult {
   ok: boolean;
   conversationId?: string;
+  planKey?: AIPlanKey;
+  planName?: string;
+  downgradedFromPlan?: string;
+  creditNotice?: string;
   message?: {
     id: string;
     role: "assistant";
@@ -83,15 +103,13 @@ export async function sendAIChatAction(input: {
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       conversationId?: string;
-      message?: {
-        id: string;
-        role: "assistant";
-        content: string;
-        createdAt: string;
-      };
-      messageError?: string;
+      planKey?: AIPlanKey;
+      planName?: string;
+      downgradedFromPlan?: string;
+      creditNotice?: string;
+      message?: unknown;
       error?: string;
-    } & { message?: unknown };
+    };
 
     if (!res.ok) {
       const errText =
@@ -102,9 +120,16 @@ export async function sendAIChatAction(input: {
     }
 
     revalidatePath("/admin/assistant");
+    if (data.downgradedFromPlan) {
+      revalidatePath("/admin/companies");
+    }
     return {
       ok: true,
       conversationId: data.conversationId,
+      planKey: data.planKey,
+      planName: data.planName,
+      downgradedFromPlan: data.downgradedFromPlan,
+      creditNotice: data.creditNotice,
       message: data.message as AIChatReplyResult["message"],
     };
   } catch {

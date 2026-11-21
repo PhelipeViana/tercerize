@@ -78,9 +78,11 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/financial-entries", opHandlers.CreateFinancialEntry)
 			r.Post("/financial-entries/reconcile", opHandlers.ReconcileFinancialEntry)
 
-			// Assistente IA & Relatórios (OpenRouter por cliente + fallback global Master)
+			// Assistente IA & Relatórios (OpenRouter por cliente + planos Free/Padrão/Premium Master)
 			r.Get("/ai/settings", aiHandlers.GetSettings)
 			r.Post("/ai/settings", aiHandlers.UpdateSettings)
+			r.Get("/ai/plans", aiHandlers.GetPlans)
+			r.Post("/ai/plans", aiHandlers.UpdatePlan)
 			r.Get("/ai/conversations", aiHandlers.ListConversations)
 			r.Delete("/ai/conversations/{id}", aiHandlers.DeleteConversation)
 			r.Post("/ai/conversations/delete", aiHandlers.DeleteConversation)

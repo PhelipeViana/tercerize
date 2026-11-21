@@ -25,13 +25,17 @@ type User struct {
 }
 
 type Tenant struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	CNPJ               string `json:"cnpj"`
-	OwnerName          string `json:"ownerName"`
-	OwnerEmail         string `json:"ownerEmail"`
-	Active             bool   `json:"active"`
-	HasOpenRouterToken bool   `json:"hasOpenrouterToken"`
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	CNPJ                  string `json:"cnpj"`
+	OwnerName             string `json:"ownerName"`
+	OwnerEmail            string `json:"ownerEmail"`
+	Active                bool   `json:"active"`
+	HasOpenRouterToken    bool   `json:"hasOpenrouterToken"`
+	AIPlanKey             string `json:"aiPlanKey"`
+	AIMonthlyMessageLimit int    `json:"aiMonthlyMessageLimit"`
+	AICreditDepleted      bool   `json:"aiCreditDepleted"`
+	AICreditDepletedFrom  string `json:"aiCreditDepletedFrom"`
 }
 
 type RoleInfo struct {
@@ -382,6 +386,10 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		        COALESCE(t.id::text, ''), COALESCE(t.name, ''), COALESCE(t.cnpj, ''),
 		        COALESCE(t.owner_name, ''), COALESCE(t.owner_email, ''), COALESCE(t.active, false),
 		        (COALESCE(t.openrouter_token_enc, '') <> ''),
+		        COALESCE(t.ai_plan_key, 'free'),
+		        COALESCE(t.ai_monthly_message_limit, 0),
+		        (t.ai_credit_depleted_at IS NOT NULL),
+		        COALESCE(t.ai_credit_depleted_from, ''),
 		        tr.id::text, tr.key, tr.name, tr.permissions
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
@@ -393,6 +401,7 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &s.User.Blocked, &totpConfiguredAt,
 			&s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.OwnerName, &s.Tenant.OwnerEmail, &s.Tenant.Active,
 			&s.Tenant.HasOpenRouterToken,
+			&s.Tenant.AIPlanKey, &s.Tenant.AIMonthlyMessageLimit, &s.Tenant.AICreditDepleted, &s.Tenant.AICreditDepletedFrom,
 			&roleID, &roleKey, &roleName, &permsRaw,
 		)
 	if errors.Is(err, pgx.ErrNoRows) {

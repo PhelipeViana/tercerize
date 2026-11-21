@@ -101,6 +101,17 @@ func seedDefaultRoles(ctx context.Context, tx pgx.Tx, tenantID string) (ownerRol
 	return ownerRoleID, nil
 }
 
+func normalizeAIPlanKey(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "standard", "padrao", "padrão":
+		return "standard"
+	case "premium":
+		return "premium"
+	default:
+		return "free"
+	}
+}
+
 // CreateCompany: POST /api/tenants (exclusivo Master)
 // Exige Razão Social, CNPJ único, Nome do Responsável e E-mail do Responsável.
 // Envia automaticamente o link de ativação do Google Authenticator para o e-mail do responsável.
@@ -111,11 +122,13 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name            string `json:"name"`
-		CNPJ            string `json:"cnpj"`
-		OwnerName       string `json:"ownerName"`
-		OwnerEmail      string `json:"ownerEmail"`
-		OpenRouterToken string `json:"openrouterToken"`
+		Name                  string `json:"name"`
+		CNPJ                  string `json:"cnpj"`
+		OwnerName             string `json:"ownerName"`
+		OwnerEmail            string `json:"ownerEmail"`
+		OpenRouterToken       string `json:"openrouterToken"`
+		AIPlanKey             string `json:"aiPlanKey"`
+		AIMonthlyMessageLimit int    `json:"aiMonthlyMessageLimit"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -192,11 +205,17 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		tokenHint = secretbox.MaskHint(rawTokenIn)
 	}
 
+	aiPlanKey := normalizeAIPlanKey(in.AIPlanKey)
+	monthlyLimit := in.AIMonthlyMessageLimit
+	if monthlyLimit < 0 {
+		monthlyLimit = 0
+	}
+
 	var tenantID string
 	err = tx.QueryRow(ctx,
-		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active, openrouter_token_enc, openrouter_token_hint)
-		 VALUES ($1, $2, $3, $4, $5, true, $6, $7) RETURNING id`,
-		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID, encToken, tokenHint).Scan(&tenantID)
+		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active, openrouter_token_enc, openrouter_token_hint, ai_plan_key, ai_monthly_message_limit)
+		 VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9) RETURNING id`,
+		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID, encToken, tokenHint, aiPlanKey, monthlyLimit).Scan(&tenantID)
 	if err != nil {
 		h.log.Error("criar empresa", "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar empresa.")
@@ -260,15 +279,17 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TenantID             string `json:"tenantId"`
-		Name                 string `json:"name"`
-		CNPJ                 string `json:"cnpj"`
-		OwnerName            string `json:"ownerName"`
-		OwnerEmail           string `json:"ownerEmail"`
-		Active               *bool  `json:"active"`
-		ResendLink           bool   `json:"resendLink"`
-		OpenRouterToken      string `json:"openrouterToken"`
-		ClearOpenRouterToken bool   `json:"clearOpenrouterToken"`
+		TenantID              string `json:"tenantId"`
+		Name                  string `json:"name"`
+		CNPJ                  string `json:"cnpj"`
+		OwnerName             string `json:"ownerName"`
+		OwnerEmail            string `json:"ownerEmail"`
+		Active                *bool  `json:"active"`
+		ResendLink            bool   `json:"resendLink"`
+		OpenRouterToken       string `json:"openrouterToken"`
+		ClearOpenRouterToken  bool   `json:"clearOpenrouterToken"`
+		AIPlanKey             string `json:"aiPlanKey"`
+		AIMonthlyMessageLimit *int   `json:"aiMonthlyMessageLimit"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -389,7 +410,12 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 	// Atualiza ou remove token OpenRouter da empresa quando informado pelo Master
 	if in.ClearOpenRouterToken {
 		_, _ = tx.Exec(ctx,
-			`UPDATE tenants SET openrouter_token_enc = '', openrouter_token_hint = '' WHERE id = $1`, tenantID)
+			`UPDATE tenants
+			    SET openrouter_token_enc = '',
+			        openrouter_token_hint = '',
+			        ai_credit_depleted_at = NULL,
+			        ai_credit_depleted_from = ''
+			  WHERE id = $1`, tenantID)
 	} else if rawToken := strings.TrimSpace(in.OpenRouterToken); rawToken != "" {
 		enc, encErr := secretbox.Encrypt(rawToken, h.aiEncryptionKey)
 		if encErr != nil {
@@ -398,8 +424,41 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = tx.Exec(ctx,
-			`UPDATE tenants SET openrouter_token_enc = $1, openrouter_token_hint = $2 WHERE id = $3`,
+			`UPDATE tenants
+			    SET openrouter_token_enc = $1,
+			        openrouter_token_hint = $2,
+			        ai_credit_depleted_at = NULL,
+			        ai_credit_depleted_from = ''
+			  WHERE id = $3`,
 			enc, secretbox.MaskHint(rawToken), tenantID)
+	}
+
+	// Atualiza plano de IA (Free / Padrão / Premium) e limite mensal opcional quando informado pelo Master
+	if strings.TrimSpace(in.AIPlanKey) != "" {
+		newPlanKey := normalizeAIPlanKey(in.AIPlanKey)
+		if newPlanKey != "free" {
+			// Ao reativar plano pago após recarga, limpa o alerta de crédito esgotado
+			_, _ = tx.Exec(ctx,
+				`UPDATE tenants
+				    SET ai_plan_key = $1,
+				        ai_credit_depleted_at = NULL,
+				        ai_credit_depleted_from = ''
+				  WHERE id = $2`,
+				newPlanKey, tenantID)
+		} else {
+			_, _ = tx.Exec(ctx,
+				`UPDATE tenants SET ai_plan_key = 'free' WHERE id = $1`,
+				tenantID)
+		}
+	}
+	if in.AIMonthlyMessageLimit != nil {
+		ml := *in.AIMonthlyMessageLimit
+		if ml < 0 {
+			ml = 0
+		}
+		_, _ = tx.Exec(ctx,
+			`UPDATE tenants SET ai_monthly_message_limit = $1 WHERE id = $2`,
+			ml, tenantID)
 	}
 
 	// Vincula o novo responsável como Dono da empresa

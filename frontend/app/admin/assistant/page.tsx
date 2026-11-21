@@ -52,6 +52,9 @@ export default async function AssistantPage({ searchParams }: AssistantPageProps
         tenantName={session.tenant.name}
         tenantCnpj={session.tenant.cnpj}
         hasOpenrouterToken={session.tenant.hasOpenrouterToken}
+        initialPlanKey={session.tenant.aiPlanKey}
+        initialCreditDepleted={session.tenant.aiCreditDepleted}
+        initialCreditDepletedFrom={session.tenant.aiCreditDepletedFrom}
         isMaster={session.user.isMaster}
         roleName={session.role.name}
         allowedModules={allowedModules}

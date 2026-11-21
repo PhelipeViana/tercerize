@@ -17,7 +17,8 @@ import (
 
 var (
 	ErrInvalidOpenRouterToken = errors.New("token OpenRouter inválido, expirado ou sem permissão")
-	ErrAllModelsFailed        = errors.New("todos os modelos gratuitos configurados estão indisponíveis ou lentos no momento")
+	ErrInsufficientCredits    = errors.New("créditos OpenRouter insuficientes para o plano pago")
+	ErrAllModelsFailed        = errors.New("todos os modelos configurados estão indisponíveis ou lentos no momento")
 )
 
 type ChatMessage struct {
@@ -26,16 +27,20 @@ type ChatMessage struct {
 }
 
 type CompletionResult struct {
-	Content       string
-	ModelUsed     string
-	LatencyMs     int
-	FallbackCount int
+	Content          string
+	ModelUsed        string
+	LatencyMs        int
+	FallbackCount    int
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 type Settings struct {
 	Models          []string `json:"models"`
 	TimeoutSeconds  int      `json:"timeoutSeconds"`
 	CooldownSeconds int      `json:"cooldownSeconds"`
+	MaxTokens       int      `json:"maxTokens"`
 }
 
 var DefaultModels = []string{
@@ -107,11 +112,15 @@ func (c *OpenRouterClient) Complete(
 	}
 	baseTimeout := settings.TimeoutSeconds
 	if baseTimeout < 5 {
-		baseTimeout = 12
+		baseTimeout = 15
 	}
 	cooldownSec := settings.CooldownSeconds
 	if cooldownSec < 30 {
 		cooldownSec = 180
+	}
+	maxTokens := settings.MaxTokens
+	if maxTokens < 500 || maxTokens > 8192 {
+		maxTokens = 2400
 	}
 
 	// Prioriza modelos fora de cooldown; mantém os em cooldown no fim da fila para nunca ficar sem tentar.
@@ -147,7 +156,7 @@ func (c *OpenRouterClient) Complete(
 		}
 
 		start := time.Now()
-		content, actualModel, statusCode, err := c.callSingleModel(ctx, apiToken, model, messages, attemptTimeout)
+		content, actualModel, usage, statusCode, err := c.callSingleModel(ctx, apiToken, model, messages, attemptTimeout, maxTokens)
 		elapsedMs := int(time.Since(start).Milliseconds())
 
 		if err == nil && strings.TrimSpace(content) != "" {
@@ -155,10 +164,13 @@ func (c *OpenRouterClient) Complete(
 				actualModel = model
 			}
 			return &CompletionResult{
-				Content:       strings.TrimSpace(content),
-				ModelUsed:     actualModel,
-				LatencyMs:     elapsedMs,
-				FallbackCount: fallbacks,
+				Content:          strings.TrimSpace(content),
+				ModelUsed:        actualModel,
+				LatencyMs:        elapsedMs,
+				FallbackCount:    fallbacks,
+				PromptTokens:     usage.PromptTokens,
+				CompletionTokens: usage.CompletionTokens,
+				TotalTokens:      usage.TotalTokens,
 			}, nil
 		}
 
@@ -167,10 +179,16 @@ func (c *OpenRouterClient) Complete(
 			return nil, ctx.Err()
 		}
 
-		// Se o token OpenRouter da empresa for inválido ou sem crédito (401/402), aborta imediatamente sem fallback inútil.
-		if statusCode == http.StatusUnauthorized || statusCode == http.StatusPaymentRequired {
-			c.log.Warn("token OpenRouter rejeitado", "status", statusCode, "model", model)
+		// Token inválido (401) -> aborta imediatamente
+		if statusCode == http.StatusUnauthorized {
+			c.log.Warn("token OpenRouter rejeitado (401)", "status", statusCode, "model", model)
 			return nil, ErrInvalidOpenRouterToken
+		}
+
+		// Créditos esgotados (402) -> sinaliza especificamente para aviso e downgrade automático ao plano Free
+		if statusCode == http.StatusPaymentRequired {
+			c.log.Warn("créditos OpenRouter esgotados (402)", "status", statusCode, "model", model)
+			return nil, ErrInsufficientCredits
 		}
 
 		lastErr = err
@@ -187,13 +205,20 @@ func (c *OpenRouterClient) Complete(
 	return nil, fmt.Errorf("%w: %v", ErrAllModelsFailed, lastErr)
 }
 
+type tokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
 func (c *OpenRouterClient) callSingleModel(
 	parentCtx context.Context,
 	apiToken string,
 	model string,
 	messages []ChatMessage,
 	timeout time.Duration,
-) (content string, resolvedModel string, statusCode int, err error) {
+	maxTokens int,
+) (content string, resolvedModel string, usage tokenUsage, statusCode int, err error) {
 	reqCtx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
@@ -201,17 +226,17 @@ func (c *OpenRouterClient) callSingleModel(
 		"model":       model,
 		"messages":    messages,
 		"temperature": 0.25,
-		"max_tokens":  2400,
+		"max_tokens":  maxTokens,
 		"reasoning":   map[string]any{"effort": "low"},
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", usage, 0, err
 	}
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", "", 0, err
+		return "", "", usage, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiToken))
 	req.Header.Set("Content-Type", "application/json")
@@ -221,16 +246,16 @@ func (c *OpenRouterClient) callSingleModel(
 	httpClient := &http.Client{Timeout: timeout + 2*time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", usage, 0, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return "", "", resp.StatusCode, err
+		return "", "", usage, resp.StatusCode, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateErr(string(respBody), 180))
+		return "", "", usage, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateErr(string(respBody), 180))
 	}
 
 	var parsed struct {
@@ -240,20 +265,35 @@ func (c *OpenRouterClient) callSingleModel(
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 		Error *struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", "", resp.StatusCode, err
+		return "", "", usage, resp.StatusCode, err
 	}
 	if parsed.Error != nil && parsed.Error.Message != "" {
-		return "", "", resp.StatusCode, errors.New(parsed.Error.Message)
+		return "", "", usage, resp.StatusCode, errors.New(parsed.Error.Message)
+	}
+	if parsed.Usage != nil {
+		usage = tokenUsage{
+			PromptTokens:     parsed.Usage.PromptTokens,
+			CompletionTokens: parsed.Usage.CompletionTokens,
+			TotalTokens:      parsed.Usage.TotalTokens,
+		}
+		if usage.TotalTokens == 0 {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		}
 	}
 	if len(parsed.Choices) == 0 || strings.TrimSpace(parsed.Choices[0].Message.Content) == "" {
-		return "", "", resp.StatusCode, errors.New("resposta vazia do modelo")
+		return "", "", usage, resp.StatusCode, errors.New("resposta vazia do modelo")
 	}
-	return parsed.Choices[0].Message.Content, parsed.Model, resp.StatusCode, nil
+	return parsed.Choices[0].Message.Content, parsed.Model, usage, resp.StatusCode, nil
 }
 
 func truncateErr(s string, max int) string {

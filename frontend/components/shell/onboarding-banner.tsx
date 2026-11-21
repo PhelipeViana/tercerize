@@ -107,11 +107,10 @@ export function OnboardingBanner({ activeCompany, tenantName }: Props) {
                 <Link
                   href={step.href}
                   onClick={() => setOpen(false)}
-                  className={`flex min-h-11 items-center justify-between gap-3 rounded-2xl border px-4 py-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${
-                    step.done
-                      ? "border-emerald-200/90 dark:border-emerald-800/50 bg-emerald-50/70 dark:bg-emerald-950/35 text-emerald-800 dark:text-emerald-300"
-                      : "border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 hover:border-[#3B68F7]"
-                  }`}
+                  className={`flex min-h-11 items-center justify-between gap-3 rounded-2xl border px-4 py-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${step.done
+                    ? "border-emerald-200/90 dark:border-emerald-800/50 bg-emerald-50/70 dark:bg-emerald-950/35 text-emerald-800 dark:text-emerald-300"
+                    : "border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 hover:border-[#3B68F7]"
+                    }`}
                 >
                   <span className="flex items-center gap-2.5 min-w-0">
                     {step.done ? (

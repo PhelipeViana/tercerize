@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   AlertCircle,
+  AlertTriangle,
   Archive,
   BarChart3,
   Building2,
   Check,
   ClipboardList,
   Copy,
+  Crown,
   Download,
   FileText,
   History,
@@ -26,11 +28,14 @@ import {
   Sparkles,
   Trash2,
   Users,
+  X,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { deleteAIConversationAction, sendAIChatAction } from "@/app/actions/ai";
 import { ConfirmModal, Modal } from "@/components/ui/modal";
 import type { AIConversationRow, AIMessageRow } from "@/lib/ai/repository";
+import type { AIPlanKey } from "@/lib/auth/repository";
 import { cn } from "@/lib/utils";
 
 export interface AllowedModuleInfo {
@@ -42,12 +47,21 @@ interface AssistantViewProps {
   tenantName: string;
   tenantCnpj: string;
   hasOpenrouterToken: boolean;
+  initialPlanKey: AIPlanKey;
+  initialCreditDepleted: boolean;
+  initialCreditDepletedFrom: string;
   isMaster: boolean;
   roleName: string;
   allowedModules: AllowedModuleInfo[];
   initialConversations: AIConversationRow[];
   initialConversationId: string;
   initialMessages: AIMessageRow[];
+}
+
+function formatPlanLabel(key: string): string {
+  if (key === "premium") return "Premium";
+  if (key === "standard") return "Padrão";
+  return "Free";
 }
 
 interface QuickPromptCard {
@@ -423,6 +437,9 @@ export function AssistantView({
   tenantName,
   tenantCnpj,
   hasOpenrouterToken,
+  initialPlanKey,
+  initialCreditDepleted,
+  initialCreditDepletedFrom,
   isMaster,
   roleName,
   allowedModules,
@@ -434,6 +451,12 @@ export function AssistantView({
   const [conversations, setConversations] = useState<AIConversationRow[]>(initialConversations);
   const [activeConversationId, setActiveConversationId] = useState<string>(initialConversationId);
   const [messages, setMessages] = useState<AIMessageRow[]>(initialMessages);
+  const [planKey, setPlanKey] = useState<AIPlanKey>(initialPlanKey);
+  const [creditNotice, setCreditNotice] = useState<string | null>(
+    initialCreditDepleted
+      ? `Os créditos OpenRouter do plano ${formatPlanLabel(initialCreditDepletedFrom)} acabaram e esta empresa foi alterada automaticamente para o plano Free.`
+      : null,
+  );
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingPhraseIdx, setLoadingPhraseIdx] = useState(0);
@@ -539,6 +562,12 @@ export function AssistantView({
 
     const nextConvId = result.conversationId || activeConversationId;
     setMessages((prev) => [...prev, result.message!]);
+    if (result.planKey) {
+      setPlanKey(result.planKey);
+    }
+    if (result.creditNotice) {
+      setCreditNotice(result.creditNotice);
+    }
 
     if (nextConvId && nextConvId !== activeConversationId) {
       setActiveConversationId(nextConvId);
@@ -726,10 +755,31 @@ export function AssistantView({
               </div>
 
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
                     Assistente IA & Relatórios
                   </h1>
+                  {hasOpenrouterToken && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold",
+                        planKey === "premium"
+                          ? "bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300"
+                          : planKey === "standard"
+                            ? "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300"
+                            : "bg-emerald-100 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-300",
+                      )}
+                    >
+                      {planKey === "premium" ? (
+                        <Crown className="size-3" aria-hidden="true" />
+                      ) : planKey === "standard" ? (
+                        <Zap className="size-3" aria-hidden="true" />
+                      ) : (
+                        <Sparkles className="size-3" aria-hidden="true" />
+                      )}
+                      <span>IA {formatPlanLabel(planKey)}</span>
+                    </span>
+                  )}
                 </div>
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs text-slate-600 dark:text-slate-400">
                   <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200">
@@ -756,6 +806,27 @@ export function AssistantView({
               ))}
             </div>
           </div>
+
+          {creditNotice && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="shrink-0 border-b border-amber-200 dark:border-amber-800/70 bg-amber-50/95 dark:bg-amber-950/55 px-4 py-2.5 sm:px-6 flex items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200"
+            >
+              <div className="flex items-center gap-2 min-w-0 font-semibold">
+                <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                <span className="text-pretty">{creditNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreditNotice(null)}
+                aria-label="Fechar aviso de créditos"
+                className="min-h-8 min-w-8 inline-flex shrink-0 items-center justify-center rounded-full text-amber-700 dark:text-amber-300 hover:bg-amber-200/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           {/* Body: Empty Token State OR Conversation Stream */}
           {!hasOpenrouterToken ? (

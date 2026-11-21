@@ -90,9 +90,10 @@ Todos os formulários aplicam formatação em tempo real e validação dupla (na
 
 ## 7. Assistente IA & Relatórios (`/admin/assistant`)
 
-- **Ativação por empresa (exclusivo MASTER)**:
-  - Ao cadastrar ou editar uma empresa em **Gestão de empresas**, o Master pode preencher (opcionalmente) o **Token OpenRouter** (`sk-or-v1-...`). O token é armazenado criptografado no banco e nunca é exibido ao cliente.
-  - No topo de **Gestão de empresas**, o botão **Modelos de IA** permite ao Master gerenciar a ordem de prioridade dos modelos gratuitos (iniciando pela família **NVIDIA Nemotron**), timeout por tentativa e cooldown automático em caso de lentidão ou erro.
+- **Ativação e planos por empresa (exclusivo MASTER)**:
+  - Ao cadastrar ou editar uma empresa em **Gestão de empresas**, o Master pode preencher (opcionalmente) o **Token OpenRouter** (`sk-or-v1-...`), escolher entre os 3 níveis (**Free** padrão gratuito, **Padrão** pago econômico ou **Premium** pago máxima análise) e definir um limite mensal opcional de respostas.
+  - No topo de **Gestão de empresas**, o botão **Planos e Modelos de IA** oferece 4 abas (**Free**, **Padrão**, **Premium** e **Consumo (Mês)**) para gerenciar a ordem dos modelos, timeout, cooldown, limite/hora e acompanhar mensagens e tokens consumidos por empresa.
+  - Caso o crédito OpenRouter de uma empresa em plano pago (`Padrão` ou `Premium`) acabe (`HTTP 402`), o sistema **avisa o usuário e o Master** e **muda automaticamente o plano da empresa para Free**, concluindo o atendimento sem interrupção.
 - **Liberação para funcionários (controle do Dono)**:
   - Por padrão, apenas o **Dono da empresa** (e o Master em visão cliente) tem acesso ao **Assistente IA**.
   - Em **Roles e permissões**, o Dono pode marcar ou desmarcar **Assistente IA e relatórios** (`ai_chat:use`) por função.

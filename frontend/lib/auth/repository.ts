@@ -9,6 +9,8 @@ export interface SessionUser {
   totpConfigured: boolean;
 }
 
+export type AIPlanKey = "free" | "standard" | "premium";
+
 export interface SessionTenant {
   id: string;
   name: string;
@@ -17,6 +19,10 @@ export interface SessionTenant {
   ownerEmail: string;
   active: boolean;
   hasOpenrouterToken: boolean;
+  aiPlanKey: AIPlanKey;
+  aiMonthlyMessageLimit: number;
+  aiCreditDepleted: boolean;
+  aiCreditDepletedFrom: string;
 }
 
 export interface SessionRole {
@@ -64,6 +70,10 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
     owner_email: string;
     tenant_active: boolean;
     has_openrouter_token: boolean;
+    ai_plan_key: string;
+    ai_monthly_message_limit: number;
+    ai_credit_depleted: boolean;
+    ai_credit_depleted_from: string;
     role_id: string | null;
     role_key: string | null;
     role_name: string | null;
@@ -78,6 +88,10 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
             COALESCE(t.owner_email, '') AS owner_email,
             COALESCE(t.active, false) AS tenant_active,
             (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
+            COALESCE(t.ai_plan_key, 'free') AS ai_plan_key,
+            COALESCE(t.ai_monthly_message_limit, 0) AS ai_monthly_message_limit,
+            (t.ai_credit_depleted_at IS NOT NULL) AS ai_credit_depleted,
+            COALESCE(t.ai_credit_depleted_from, '') AS ai_credit_depleted_from,
             tr.id::text AS role_id, tr.key AS role_key, tr.name AS role_name,
             tr.permissions AS role_permissions
        FROM sessions s
@@ -136,6 +150,13 @@ export async function findSession(tokenHash: string): Promise<SessionContext | n
       ownerEmail: row.owner_email,
       active: row.tenant_active,
       hasOpenrouterToken: Boolean(row.has_openrouter_token),
+      aiPlanKey:
+        row.ai_plan_key === "standard" || row.ai_plan_key === "premium"
+          ? row.ai_plan_key
+          : "free",
+      aiMonthlyMessageLimit: Number(row.ai_monthly_message_limit || 0),
+      aiCreditDepleted: Boolean(row.ai_credit_depleted),
+      aiCreditDepletedFrom: row.ai_credit_depleted_from || "",
     },
     role,
   };

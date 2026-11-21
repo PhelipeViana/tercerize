@@ -350,6 +350,8 @@ export async function createCompanyStateAction(
   const ownerName = text(formData.get("ownerName")).trim();
   const ownerEmail = text(formData.get("ownerEmail")).trim();
   const openrouterToken = text(formData.get("openrouterToken")).trim();
+  const aiPlanKey = text(formData.get("aiPlanKey")).trim() || "free";
+  const aiMonthlyMessageLimit = Math.max(0, Number(text(formData.get("aiMonthlyMessageLimit")) || "0") || 0);
 
   const values = { name, cnpj: rawCnpj, ownerName, ownerEmail };
 
@@ -386,7 +388,15 @@ export async function createCompanyStateAction(
   try {
     const res = await apiFetch("/api/tenants", {
       method: "POST",
-      body: { name, cnpj: cnpjCheck.formatted, ownerName, ownerEmail, openrouterToken },
+      body: {
+        name,
+        cnpj: cnpjCheck.formatted,
+        ownerName,
+        ownerEmail,
+        openrouterToken,
+        aiPlanKey,
+        aiMonthlyMessageLimit,
+      },
     });
     const data = (await res.json().catch(() => ({}))) as {
       id?: string;
@@ -569,6 +579,8 @@ export async function updateCompanyStateAction(
   const resendLink = formData.get("resendLink") === "on";
   const openrouterToken = text(formData.get("openrouterToken")).trim();
   const clearOpenrouterToken = formData.get("clearOpenrouterToken") === "on";
+  const aiPlanKey = text(formData.get("aiPlanKey")).trim() || "free";
+  const aiMonthlyMessageLimit = Math.max(0, Number(text(formData.get("aiMonthlyMessageLimit")) || "0") || 0);
 
   if (!tenantId) {
     return { message: "Empresa inválida." };
@@ -609,6 +621,8 @@ export async function updateCompanyStateAction(
         resendLink,
         openrouterToken,
         clearOpenrouterToken,
+        aiPlanKey,
+        aiMonthlyMessageLimit,
       },
     });
     const data = (await res.json().catch(() => ({}))) as {
