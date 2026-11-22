@@ -272,9 +272,15 @@ export function AdminShell({
           {isMaster && !isMasterGlobalMode && session.tenant.isPartner && (
             <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10">
               <Link
-                href={`/admin/companies?partner=${encodeURIComponent(session.tenant.id)}`}
+                href="/partner/companies"
                 onClick={() => setOpen(false)}
-                className="flex w-full min-h-11 items-center justify-between gap-2 rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/80 dark:bg-blue-950/45 px-4 py-3 text-[14px] font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100/90 dark:hover:bg-blue-950/75 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                aria-current={current === "partner-companies" ? "page" : undefined}
+                className={cn(
+                  "flex w-full min-h-11 items-center justify-between gap-2 px-4 py-3 text-[14px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]",
+                  current === "partner-companies"
+                    ? "rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
+                    : "rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/80 dark:bg-blue-950/45 text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100/90 dark:hover:bg-blue-950/75",
+                )}
               >
                 <span className="flex items-center gap-3.5 min-w-0">
                   <Handshake className="size-[19px] shrink-0 stroke-[1.9]" aria-hidden="true" />

@@ -6,14 +6,39 @@ import { listCompanies, listPartnerPortfolio } from "@/lib/operations/repository
 
 export default async function PartnerCompaniesPage() {
   const session = await requireSession();
-  if (!session.user.isPartner || !session.user.partnerTenantId) {
+
+  // Permite tanto o Dono Parceiro real quanto o Admin Master inspecionando (Ver sistema) uma empresa Parceira
+  const isMasterPreviewingPartner =
+    session.user.isMaster && Boolean(session.tenant.id) && session.tenant.isPartner;
+
+  if (!session.user.isPartner && !isMasterPreviewingPartner) {
     redirect(firstAllowedRoute(session));
   }
 
+  const targetPartnerId = isMasterPreviewingPartner
+    ? session.tenant.id
+    : session.user.partnerTenantId;
+
   const [switcherCompanies, portfolio] = await Promise.all([
-    listCompanies(session.user.id, false, session.user.partnerTenantId),
-    listPartnerPortfolio(session.user.partnerTenantId),
+    listCompanies(session.user.id, session.user.isMaster, targetPartnerId),
+    listPartnerPortfolio(targetPartnerId),
   ]);
+
+  const partnerCompany = isMasterPreviewingPartner
+    ? switcherCompanies.find((c) => c.id === targetPartnerId)
+    : undefined;
+
+  const partnerTenantName = isMasterPreviewingPartner
+    ? (partnerCompany?.name ?? session.tenant.name)
+    : session.user.partnerTenantName;
+
+  const partnerMaxCompanies = isMasterPreviewingPartner
+    ? (partnerCompany?.partnerMaxCompanies ?? 0)
+    : session.user.partnerMaxCompanies;
+
+  const partnerFeatures = isMasterPreviewingPartner
+    ? (partnerCompany?.partnerFeatures ?? {})
+    : session.user.partnerFeatures;
 
   return (
     <AdminShell
@@ -25,9 +50,9 @@ export default async function PartnerCompaniesPage() {
       hideHeader
     >
       <PartnerCompaniesView
-        partnerTenantName={session.user.partnerTenantName}
-        partnerMaxCompanies={session.user.partnerMaxCompanies}
-        partnerFeatures={session.user.partnerFeatures}
+        partnerTenantName={partnerTenantName}
+        partnerMaxCompanies={partnerMaxCompanies}
+        partnerFeatures={partnerFeatures}
         companies={portfolio}
       />
     </AdminShell>

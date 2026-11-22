@@ -332,23 +332,53 @@ func (h *Handlers) RevokePartner(w http.ResponseWriter, r *http.Request) {
 
 // ---------- ENDPOINTS DEDICADOS DO AMBIENTE PARCEIROS (/api/partner/*) ----------
 
-func requirePartnerFeature(w http.ResponseWriter, sess *auth.SessionContext, feature string) bool {
-	if sess == nil || !sess.User.IsPartner || sess.User.PartnerTenantID == "" {
-		httpx.Message(w, http.StatusForbidden, "Acesso exclusivo para empresas promovidas ao ambiente Parceiros.")
-		return false
+func (h *Handlers) resolvePartnerScope(r *http.Request, sess *auth.SessionContext, feature string) (partnerTenantID string, maxCompanies int, features map[string]bool, ok bool) {
+	if sess == nil {
+		return "", 0, nil, false
 	}
-	if !sess.HasPartnerFeature(feature) {
-		httpx.Message(w, http.StatusForbidden, "Este recurso ainda não foi liberado pelo Admin Master para a sua conta Parceira.")
-		return false
+	if sess.User.IsPartner && sess.User.PartnerTenantID != "" {
+		if feature != "" && !sess.HasPartnerFeature(feature) {
+			return "", 0, nil, false
+		}
+		return sess.User.PartnerTenantID, sess.User.PartnerMaxCompanies, sess.User.PartnerFeatures, true
 	}
-	return true
+	// Permite ao Admin Master em "Ver sistema" de uma empresa Parceira testar o portal exatamente como o Parceiro
+	if sess.User.IsMaster && sess.Tenant.ID != "" && sess.Tenant.IsPartner {
+		var rawFeat []byte
+		var maxC int
+		if err := h.pool.QueryRow(r.Context(),
+			`SELECT COALESCE(partner_features, '{}'::jsonb), COALESCE(partner_max_companies, 0) FROM tenants WHERE id = $1 AND is_partner = true`,
+			sess.Tenant.ID).Scan(&rawFeat, &maxC); err == nil {
+			fMap := map[string]bool{}
+			_ = json.Unmarshal(rawFeat, &fMap)
+			if feature != "" && !fMap[feature] {
+				return "", 0, nil, false
+			}
+			return sess.Tenant.ID, maxC, fMap, true
+		}
+	}
+	return "", 0, nil, false
+}
+
+func (h *Handlers) requirePartnerFeatureScope(w http.ResponseWriter, r *http.Request, sess *auth.SessionContext, feature string) (partnerTenantID string, maxCompanies int, features map[string]bool, ok bool) {
+	partnerTenantID, maxCompanies, features, ok = h.resolvePartnerScope(r, sess, feature)
+	if !ok {
+		if sess == nil || (!sess.User.IsPartner && !(sess.User.IsMaster && sess.Tenant.IsPartner)) {
+			httpx.Message(w, http.StatusForbidden, "Acesso exclusivo para empresas promovidas ao ambiente Parceiros.")
+		} else {
+			httpx.Message(w, http.StatusForbidden, "Este recurso ainda não foi liberado pelo Admin Master para esta conta Parceira.")
+		}
+		return "", 0, nil, false
+	}
+	return partnerTenantID, maxCompanies, features, true
 }
 
 // PartnerCreateCompany: POST /api/partner/companies
 // Permite ao Dono Parceiro cadastrar uma nova empresa cliente na própria carteira (com Token OpenRouter opcional).
 func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	if !requirePartnerFeature(w, sess, "companies:create") {
+	partnerTenantID, partnerMaxCompanies, partnerFeatures, ok := h.requirePartnerFeatureScope(w, r, sess, "companies:create")
+	if !ok {
 		return
 	}
 
@@ -387,15 +417,15 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 
 	ctx := r.Context()
 	// Verifica cota máxima de empresas do parceiro (quando > 0)
-	if sess.User.PartnerMaxCompanies > 0 {
+	if partnerMaxCompanies > 0 {
 		var currentCount int
 		_ = h.pool.QueryRow(ctx,
 			`SELECT count(*) FROM tenants WHERE parent_partner_tenant_id = $1`,
-			sess.User.PartnerTenantID).Scan(&currentCount)
-		if currentCount >= sess.User.PartnerMaxCompanies {
+			partnerTenantID).Scan(&currentCount)
+		if currentCount >= partnerMaxCompanies {
 			httpx.Message(w, http.StatusForbidden, fmt.Sprintf(
 				"Você atingiu o limite de %d empresa(s) liberadas para sua conta Parceira. Solicite ampliação ao Admin Master.",
-				sess.User.PartnerMaxCompanies,
+				partnerMaxCompanies,
 			))
 			return
 		}
@@ -422,7 +452,7 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var encToken, tokenHint string
-	if rawToken := strings.TrimSpace(in.OpenRouterToken); rawToken != "" && sess.HasPartnerFeature("companies:ai_token") {
+	if rawToken := strings.TrimSpace(in.OpenRouterToken); rawToken != "" && partnerFeatures["companies:ai_token"] {
 		enc, encErr := secretbox.Encrypt(rawToken, h.aiEncryptionKey)
 		if encErr != nil {
 			httpx.Message(w, http.StatusInternalServerError, "Erro ao proteger o token OpenRouter.")
@@ -446,10 +476,10 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 		 RETURNING id`,
 		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID,
 		encToken, tokenHint, aiPlanKey,
-		sess.User.PartnerTenantID, sess.User.ID,
+		partnerTenantID, sess.User.ID,
 	).Scan(&tenantID)
 	if err != nil {
-		h.log.Error("parceiro criar empresa", "partner", sess.User.PartnerTenantID, "err", err)
+		h.log.Error("parceiro criar empresa", "partner", partnerTenantID, "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar empresa cliente.")
 		return
 	}
@@ -499,10 +529,11 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 }
 
 // PartnerUpdateCompany: POST /api/partner/companies/update
-// Permite ao Dono Parceiro editar SOMENTE empresas cadastradas por ele (parent_partner_tenant_id = PartnerTenantID).
+// Permite ao Dono Parceiro editar SOMENTE empresas cadastradas por ele (parent_partner_tenant_id = partnerTenantID).
 func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	if !requirePartnerFeature(w, sess, "companies:edit") {
+	partnerTenantID, _, partnerFeatures, ok := h.requirePartnerFeatureScope(w, r, sess, "companies:edit")
+	if !ok {
 		return
 	}
 
@@ -563,7 +594,7 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 		`SELECT active, COALESCE(owner_email, ''), owner_user_id::text
 		   FROM tenants
 		  WHERE id = $1 AND parent_partner_tenant_id = $2`,
-		tenantID, sess.User.PartnerTenantID).Scan(&currentActive, &oldOwnerEmail, &oldOwnerUserID)
+		tenantID, partnerTenantID).Scan(&currentActive, &oldOwnerEmail, &oldOwnerUserID)
 	if err != nil {
 		httpx.Message(w, http.StatusForbidden, "Você só pode editar empresas cadastradas na sua carteira Parceira.")
 		return
@@ -577,7 +608,7 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 	}
 
 	newActive := currentActive
-	if in.Active != nil && sess.HasPartnerFeature("companies:toggle_active") {
+	if in.Active != nil && partnerFeatures["companies:toggle_active"] {
 		newActive = *in.Active
 	}
 
@@ -602,13 +633,13 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 		`UPDATE tenants
 		    SET name = $1, cnpj = $2, owner_name = $3, owner_email = $4, owner_user_id = $5, active = $6
 		  WHERE id = $7 AND parent_partner_tenant_id = $8`,
-		name, formattedCNPJ, ownerName, ownerEmail, newOwnerUserID, newActive, tenantID, sess.User.PartnerTenantID)
+		name, formattedCNPJ, ownerName, ownerEmail, newOwnerUserID, newActive, tenantID, partnerTenantID)
 	if err != nil {
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao salvar alterações.")
 		return
 	}
 
-	if sess.HasPartnerFeature("companies:ai_token") {
+	if partnerFeatures["companies:ai_token"] {
 		if in.ClearOpenRouterToken {
 			_, _ = tx.Exec(ctx,
 				`UPDATE tenants SET openrouter_token_enc = '', openrouter_token_hint = '', ai_credit_depleted_at = NULL, ai_credit_depleted_from = '' WHERE id = $1`,
@@ -685,7 +716,8 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 // PartnerToggleCompanyActive: POST /api/partner/companies/toggle-active
 func (h *Handlers) PartnerToggleCompanyActive(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	if !requirePartnerFeature(w, sess, "companies:toggle_active") {
+	partnerTenantID, _, _, ok := h.requirePartnerFeatureScope(w, r, sess, "companies:toggle_active")
+	if !ok {
 		return
 	}
 	var in struct {
@@ -709,7 +741,7 @@ func (h *Handlers) PartnerToggleCompanyActive(w http.ResponseWriter, r *http.Req
 		`UPDATE tenants SET active = NOT active
 		  WHERE id = $1 AND parent_partner_tenant_id = $2
 		  RETURNING active`,
-		targetID, sess.User.PartnerTenantID).Scan(&newActive)
+		targetID, partnerTenantID).Scan(&newActive)
 	if err != nil {
 		httpx.Message(w, http.StatusForbidden, "Você só pode ativar ou desativar empresas da sua carteira Parceira.")
 		return
@@ -735,8 +767,8 @@ func (h *Handlers) PartnerToggleCompanyActive(w http.ResponseWriter, r *http.Req
 // PartnerResendCompanyOwnerLink: POST /api/partner/companies/resend-owner-link
 func (h *Handlers) PartnerResendCompanyOwnerLink(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	if sess == nil || !sess.User.IsPartner || sess.User.PartnerTenantID == "" {
-		httpx.Message(w, http.StatusForbidden, "Acesso exclusivo para empresas parceiras.")
+	partnerTenantID, _, _, ok := h.requirePartnerFeatureScope(w, r, sess, "")
+	if !ok {
 		return
 	}
 	var in struct {
@@ -755,7 +787,7 @@ func (h *Handlers) PartnerResendCompanyOwnerLink(w http.ResponseWriter, r *http.
 		`SELECT name, COALESCE(owner_name, ''), COALESCE(owner_email, ''), owner_user_id::text, active
 		   FROM tenants
 		  WHERE id = $1 AND parent_partner_tenant_id = $2`,
-		targetID, sess.User.PartnerTenantID).Scan(&companyName, &ownerName, &ownerEmail, &ownerUserID, &active)
+		targetID, partnerTenantID).Scan(&companyName, &ownerName, &ownerEmail, &ownerUserID, &active)
 	if err != nil {
 		httpx.Message(w, http.StatusForbidden, "Empresa não pertence à sua carteira Parceira.")
 		return
