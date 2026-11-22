@@ -8,11 +8,11 @@ const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? 
 
 export type AIPlanActionState =
   | {
-      ok?: boolean;
-      planKey?: AIPlanKey;
-      message?: string;
-      error?: string;
-    }
+    ok?: boolean;
+    planKey?: AIPlanKey;
+    message?: string;
+    error?: string;
+  }
   | undefined;
 
 export async function updateAIPlanStateAction(

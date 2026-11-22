@@ -48,12 +48,24 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Use(authHandlers.Require)
 			r.Get("/me", authHandlers.Me)
 
-			// Multi-Empresas (gestão exclusiva Master)
+			// Multi-Empresas (gestão exclusiva Admin Master)
 			r.Post("/tenants/switch", authHandlers.SwitchTenant)
 			r.Post("/tenants", opHandlers.CreateCompany)
 			r.Post("/tenants/update", opHandlers.UpdateCompany)
 			r.Post("/tenants/toggle-active", opHandlers.ToggleTenantActive)
 			r.Post("/tenants/resend-owner-link", opHandlers.ResendCompanyOwnerLink)
+
+			// Gestão de Empresas Parceiras (aba exclusiva Admin Master)
+			r.Post("/partners", opHandlers.CreatePartnerCompany)
+			r.Post("/partners/promote", opHandlers.PromoteOrUpdatePartner)
+			r.Post("/partners/update", opHandlers.PromoteOrUpdatePartner)
+			r.Post("/partners/revoke", opHandlers.RevokePartner)
+
+			// Ambiente Dedicado Parceiros (carteira exclusiva do Dono Parceiro)
+			r.Post("/partner/companies", opHandlers.PartnerCreateCompany)
+			r.Post("/partner/companies/update", opHandlers.PartnerUpdateCompany)
+			r.Post("/partner/companies/toggle-active", opHandlers.PartnerToggleCompanyActive)
+			r.Post("/partner/companies/resend-owner-link", opHandlers.PartnerResendCompanyOwnerLink)
 
 			// Roles e Permissões (exclusivo Dono da empresa ativa ou Master)
 			r.Post("/rbac/roles", opHandlers.CreateOrUpdateRole)

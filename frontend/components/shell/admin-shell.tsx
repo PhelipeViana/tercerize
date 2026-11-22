@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardList,
+  Handshake,
   HelpCircle,
   Layers,
   LogOut,
@@ -42,7 +43,9 @@ export type ModuleKey =
   | "finance"
   | "permissions"
   | "assistant"
-  | "companies";
+  | "companies"
+  | "partners"
+  | "partner-companies";
 
 interface NavItem {
   key: ModuleKey;
@@ -52,6 +55,7 @@ interface NavItem {
   permission?: string;
   accessManageOnly?: boolean;
   masterOnly?: boolean;
+  partnerFeature?: string;
 }
 
 const CLIENT_NAV_ITEMS: NavItem[] = [
@@ -67,6 +71,11 @@ const CLIENT_NAV_ITEMS: NavItem[] = [
 
 const MASTER_NAV_ITEMS: NavItem[] = [
   { key: "companies", label: "Gestão de empresas", href: "/admin/companies", icon: Layers, masterOnly: true },
+  { key: "partners", label: "Parceiros", href: "/admin/partners", icon: Handshake, masterOnly: true },
+];
+
+const PARTNER_NAV_ITEMS: NavItem[] = [
+  { key: "partner-companies", label: "Empresas da carteira", href: "/partner/companies", icon: Layers },
 ];
 
 interface AdminShellProps {
@@ -97,37 +106,47 @@ export function AdminShell({
   const [switchedNotice, setSwitchedNotice] = useState<string | null>(null);
 
   const isMaster = session.user.isMaster;
+  const isPartner = session.user.isPartner && !isMaster;
   const hasActiveTenant = Boolean(session.tenant.id);
-  const isMasterGlobalMode = isMaster && !hasActiveTenant;
+  const isMasterGlobalMode = isMaster && session.contextMode === "master";
+  const isPartnerPortalMode = isPartner && session.contextMode === "partner";
+  const isPortalMode = isMasterGlobalMode || isPartnerPortalMode;
   const canManageAccess = isMaster || session.role.key === "owner" || Boolean(session.role.permissions["access:manage"]);
 
-  // Separação estrita:
-  // - No contexto MASTER (sem empresa selecionada): exibe SOMENTE opções exclusivas do Master.
-  // - Quando seleciona uma empresa cliente: exibe EXATAMENTE o menu que o cliente vê (sem opções do Master).
+  // Separação estrita dos 3 níveis:
+  // 1) MASTER global -> somente opções exclusivas do Admin Master.
+  // 2) Ambiente PARCEIROS -> somente módulos liberados para o nível Parceiros.
+  // 3) Empresa cliente -> exatamente o menu operacional daquela empresa.
   const visibleItems = isMasterGlobalMode
     ? MASTER_NAV_ITEMS
-    : CLIENT_NAV_ITEMS.filter((item) => {
-        if (item.key === "assistant" && !session.tenant.hasOpenrouterToken && !isMaster && session.role.key !== "owner") {
-          return false;
-        }
-        if (item.accessManageOnly) return canManageAccess;
-        if (item.permission) {
-          return isMaster || session.role.key === "owner" || Boolean(session.role.permissions[item.permission]);
-        }
-        return true;
-      });
+    : isPartnerPortalMode
+      ? PARTNER_NAV_ITEMS.filter(
+          (item) => !item.partnerFeature || Boolean(session.user.partnerFeatures[item.partnerFeature]),
+        )
+      : CLIENT_NAV_ITEMS.filter((item) => {
+          if (item.key === "assistant" && !session.tenant.hasOpenrouterToken && !isMaster && session.role.key !== "owner") {
+            return false;
+          }
+          if (item.accessManageOnly) return canManageAccess;
+          if (item.permission) {
+            return isMaster || session.role.key === "owner" || Boolean(session.role.permissions[item.permission]);
+          }
+          return true;
+        });
 
   const activeCompany = hasActiveTenant ? companies.find((c) => c.id === session.tenant.id) : undefined;
-  const showContextDropdown = isMaster || companies.length > 1;
+  const showContextDropdown = isMaster || isPartner || companies.length > 1;
 
   useEffect(() => {
     try {
       const storageKey = "tercerize_active_context_id";
-      const nextKey = isMasterGlobalMode ? "MASTER" : session.tenant.id;
+      const nextKey = isMasterGlobalMode ? "MASTER" : isPartnerPortalMode ? "PARTNER" : session.tenant.id;
       const prev = window.sessionStorage.getItem(storageKey);
       if (prev && prev !== nextKey) {
         if (isMasterGlobalMode) {
           setSwitchedNotice("Painel Global MASTER");
+        } else if (isPartnerPortalMode) {
+          setSwitchedNotice(`Ambiente Parceiros (${session.user.partnerTenantName})`);
         } else {
           setSwitchedNotice(`${session.tenant.name} (${session.tenant.cnpj})`);
         }
@@ -136,7 +155,7 @@ export function AdminShell({
     } catch {
       // ignore storage errors
     }
-  }, [isMasterGlobalMode, session.tenant.id, session.tenant.name, session.tenant.cnpj]);
+  }, [isMasterGlobalMode, isPartnerPortalMode, session.user.partnerTenantName, session.tenant.id, session.tenant.name, session.tenant.cnpj]);
 
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
@@ -228,7 +247,13 @@ export function AdminShell({
               {session.user.name}
             </p>
             <p className="truncate text-[11px] font-semibold text-[#3B68F7] dark:text-blue-400">
-              {isMasterGlobalMode ? "Master Global" : isMaster ? "Master (visão cliente)" : session.role.name}
+              {isMasterGlobalMode
+                ? "Master Global"
+                : isMaster
+                  ? "Master (visão cliente)"
+                  : isPartnerPortalMode
+                    ? "Ambiente Parceiros"
+                    : session.role.name}
             </p>
           </div>
           <form action={logout}>
@@ -265,6 +290,14 @@ export function AdminShell({
                   Ambiente exclusivo <strong className="text-slate-900 dark:text-white">MASTER</strong>
                 </span>
               </div>
+            ) : isPartnerPortalMode ? (
+              <div className="hidden lg:flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                <Handshake className="size-4 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
+                <span>
+                  Ambiente <strong className="text-slate-900 dark:text-white">Parceiros</strong> ·{" "}
+                  {session.user.partnerTenantName}
+                </span>
+              </div>
             ) : isMaster ? (
               <div className="hidden sm:flex items-center gap-2.5 min-w-0">
                 <form action={switchTenantAction}>
@@ -281,6 +314,24 @@ export function AdminShell({
                   Visualizando exatamente como a empresa vê
                 </span>
               </div>
+            ) : isPartner ? (
+              <div className="hidden sm:flex items-center gap-2.5 min-w-0">
+                <form action={switchTenantAction}>
+                  <input type="hidden" name="tenantId" value="PARTNER" />
+                  <button
+                    type="submit"
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50/90 dark:bg-blue-950/50 px-3 py-1 text-xs font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                  >
+                    <ArrowLeft className="size-3.5" aria-hidden="true" />
+                    <span>Voltar para Parceiros</span>
+                  </button>
+                </form>
+                <span className="hidden lg:inline text-xs text-slate-600 dark:text-slate-300 truncate">
+                  {session.tenant.parentPartnerTenantId === session.user.partnerTenantId
+                    ? "Visualizando cliente da sua carteira"
+                    : `Função: ${session.role.name}`}
+                </span>
+              </div>
             ) : (
               <div className="hidden lg:flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                 <Building2 className="size-3.5 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
@@ -294,7 +345,7 @@ export function AdminShell({
 
           <div className="flex items-center gap-2.5 sm:gap-3 ml-auto">
             <span className="hidden sm:inline text-xs font-semibold text-slate-600 dark:text-slate-300">
-              {isMaster ? "Contexto:" : "Empresa ativa:"}
+              {isMaster || isPartner ? "Contexto:" : "Empresa ativa:"}
             </span>
 
             {showContextDropdown ? (
@@ -307,7 +358,9 @@ export function AdminShell({
                   aria-label={
                     isMasterGlobalMode
                       ? "Contexto atual: MASTER. Clique para escolher uma empresa cliente"
-                      : `Empresa ativa: ${session.tenant.name}. Clique para alternar`
+                      : isPartnerPortalMode
+                        ? "Contexto atual: Parceiros. Clique para alternar"
+                        : `Empresa ativa: ${session.tenant.name}. Clique para alternar`
                   }
                   className="inline-flex min-h-10 items-center gap-2 rounded-full border border-slate-300/90 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white shadow-2xs hover:border-[#3B68F7] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] cursor-pointer"
                 >
@@ -315,6 +368,11 @@ export function AdminShell({
                     <>
                       <ShieldCheck className="size-3.5 text-[#3B68F7] shrink-0" aria-hidden="true" />
                       <span>MASTER</span>
+                    </>
+                  ) : isPartnerPortalMode ? (
+                    <>
+                      <Handshake className="size-3.5 text-[#3B68F7] shrink-0" aria-hidden="true" />
+                      <span>Parceiros</span>
                     </>
                   ) : (
                     <>
@@ -364,11 +422,45 @@ export function AdminShell({
                                 <div className="min-w-0">
                                   <p className="font-bold truncate">MASTER</p>
                                   <p className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate">
-                                    Somente gestão de empresas e acessos
+                                    Empresas, Parceiros e Planos de IA
                                   </p>
                                 </div>
                               </div>
                               {isMasterGlobalMode && <Check className="size-4 shrink-0" aria-hidden="true" />}
+                            </button>
+                          </form>
+                        </div>
+                      )}
+
+                      {isPartner && (
+                        <div className="space-y-1.5 pb-2 border-b border-slate-200/80 dark:border-white/10">
+                          <p className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            Ambiente Parceiros
+                          </p>
+                          <form
+                            action={switchTenantAction}
+                            onSubmit={() => setPickerOpen(false)}
+                          >
+                            <input type="hidden" name="tenantId" value="PARTNER" />
+                            <button
+                              type="submit"
+                              className={cn(
+                                "w-full min-h-11 text-left px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]",
+                                isPartnerPortalMode
+                                  ? "bg-blue-50/90 dark:bg-blue-950/60 font-bold text-[#3B68F7] dark:text-blue-300"
+                                  : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200",
+                              )}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <Handshake className="size-4 shrink-0 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
+                                <div className="min-w-0">
+                                  <p className="font-bold truncate">Parceiros</p>
+                                  <p className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate">
+                                    Gerir carteira · {session.user.partnerTenantName}
+                                  </p>
+                                </div>
+                              </div>
+                              {isPartnerPortalMode && <Check className="size-4 shrink-0" aria-hidden="true" />}
                             </button>
                           </form>
                         </div>
@@ -470,7 +562,7 @@ export function AdminShell({
             )}
 
             <span className="h-5 w-px bg-slate-200 dark:bg-white/10" aria-hidden="true" />
-            {!isMasterGlobalMode && (
+            {!isPortalMode && (
               <OnboardingBanner activeCompany={activeCompany} tenantName={session.tenant.name} />
             )}
             <button

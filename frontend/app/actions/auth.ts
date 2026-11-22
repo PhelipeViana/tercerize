@@ -8,70 +8,70 @@ import { validateCNPJ, validateEmail } from "@/lib/utils/masks";
 
 export type LoginStepState =
   | {
-      step: "email" | "code";
-      email?: string;
-      userName?: string;
-      isMaster?: boolean;
-      errors?: Partial<Record<"email" | "code", string[]>>;
-      message?: string;
-    }
+    step: "email" | "code";
+    email?: string;
+    userName?: string;
+    isMaster?: boolean;
+    errors?: Partial<Record<"email" | "code", string[]>>;
+    message?: string;
+  }
   | undefined;
 
 export type RecoveryStepState =
   | {
-      step: "email" | "confirm" | "sent";
-      email?: string;
-      userName?: string;
-      isMaster?: boolean;
-      requiresCnpj?: boolean;
-      cnpj?: string;
-      companyName?: string;
-      errors?: Partial<Record<"email" | "cnpj", string[]>>;
-      message?: string;
-      successMessage?: string;
-    }
+    step: "email" | "confirm" | "sent";
+    email?: string;
+    userName?: string;
+    isMaster?: boolean;
+    requiresCnpj?: boolean;
+    cnpj?: string;
+    companyName?: string;
+    errors?: Partial<Record<"email" | "cnpj", string[]>>;
+    message?: string;
+    successMessage?: string;
+  }
   | undefined;
 
 export type ActivateAuthState =
   | {
-      error?: string;
-    }
+    error?: string;
+  }
   | undefined;
 
 export type CompanyFormState =
   | {
-      ok?: boolean;
-      createdName?: string;
-      createdCnpj?: string;
-      ownerName?: string;
-      ownerEmail?: string;
-      emailSent?: boolean;
-      emailWarning?: string;
-      fieldError?: { field: "name" | "cnpj" | "ownerName" | "ownerEmail"; message: string };
-      message?: string;
-      values?: { name?: string; cnpj?: string; ownerName?: string; ownerEmail?: string };
-    }
+    ok?: boolean;
+    createdName?: string;
+    createdCnpj?: string;
+    ownerName?: string;
+    ownerEmail?: string;
+    emailSent?: boolean;
+    emailWarning?: string;
+    fieldError?: { field: "name" | "cnpj" | "ownerName" | "ownerEmail"; message: string };
+    message?: string;
+    values?: { name?: string; cnpj?: string; ownerName?: string; ownerEmail?: string };
+  }
   | undefined;
 
 export type CompanyEditState =
   | {
-      ok?: boolean;
-      updatedId?: string;
-      updatedName?: string;
-      emailSent?: boolean;
-      emailWarning?: string;
-      fieldError?: { field: "name" | "cnpj" | "ownerName" | "ownerEmail"; message: string };
-      message?: string;
-    }
+    ok?: boolean;
+    updatedId?: string;
+    updatedName?: string;
+    emailSent?: boolean;
+    emailWarning?: string;
+    fieldError?: { field: "name" | "cnpj" | "ownerName" | "ownerEmail"; message: string };
+    message?: string;
+  }
   | undefined;
 
 export type RBACActionState =
   | {
-      ok?: boolean;
-      message?: string;
-      warning?: string;
-      error?: string;
-    }
+    ok?: boolean;
+    message?: string;
+    warning?: string;
+    error?: string;
+  }
   | undefined;
 
 interface Entered {
@@ -321,7 +321,7 @@ export async function completeSetupLinkAction(
 }
 
 export async function logout(): Promise<void> {
-  await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+  await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => { });
   await clearSessionCookie();
   redirect("/login");
 }
@@ -329,14 +329,21 @@ export async function logout(): Promise<void> {
 export async function switchTenantAction(formData: FormData): Promise<void> {
   const tenantId = text(formData.get("tenantId")).trim();
   if (!tenantId) return;
-  const isMasterContext = tenantId.toUpperCase() === "MASTER";
+  const upper = tenantId.toUpperCase();
+  const isMasterContext = upper === "MASTER";
+  const isPartnerContext = upper === "PARTNER";
   await apiFetch("/api/tenants/switch", {
     method: "POST",
-    body: { tenantId: isMasterContext ? "MASTER" : tenantId },
+    body: {
+      tenantId: isMasterContext ? "MASTER" : isPartnerContext ? "PARTNER" : tenantId,
+    },
   });
   revalidatePath("/", "layout");
   if (isMasterContext) {
     redirect("/admin/companies");
+  }
+  if (isPartnerContext) {
+    redirect("/partner/companies");
   }
   redirect("/admin/contracts");
 }

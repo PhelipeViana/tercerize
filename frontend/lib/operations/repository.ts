@@ -8,6 +8,14 @@ export interface CompanyRow {
   ownerName: string;
   ownerEmail: string;
   active: boolean;
+  isPartner: boolean;
+  partnerFeatures: Record<string, boolean>;
+  partnerMaxCompanies: number;
+  partnerNotes: string;
+  partnerEnabledAt: string | null;
+  parentPartnerTenantId: string;
+  parentPartnerName: string;
+  partnerPortfolioCount: number;
   hasOpenrouterToken: boolean;
   openrouterTokenHint: string;
   aiPlanKey: "free" | "standard" | "premium";
@@ -171,7 +179,11 @@ export interface FinancialEntryRow {
   updatedAt: string;
 }
 
-export async function listCompanies(userId?: string, isMaster = true): Promise<CompanyRow[]> {
+export async function listCompanies(
+  userId?: string,
+  isMaster = true,
+  partnerTenantId = "",
+): Promise<CompanyRow[]> {
   if (isMaster || !userId) {
     const { rows } = await getPool().query<{
       id: string;
@@ -180,6 +192,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       owner_name: string;
       owner_email: string;
       active: boolean;
+      is_partner: boolean;
+      partner_features: Record<string, boolean> | null;
+      partner_max_companies: number;
+      partner_notes: string;
+      partner_enabled_at: string | null;
+      parent_partner_tenant_id: string;
+      parent_partner_name: string;
+      partner_portfolio_count: string;
       has_openrouter_token: boolean;
       openrouter_token_hint: string;
       ai_plan_key: string;
@@ -205,6 +225,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
               COALESCE(t.owner_name, '') AS owner_name,
               COALESCE(t.owner_email, '') AS owner_email,
               t.active,
+              COALESCE(t.is_partner, false) AS is_partner,
+              COALESCE(t.partner_features, '{}'::jsonb) AS partner_features,
+              COALESCE(t.partner_max_companies, 0) AS partner_max_companies,
+              COALESCE(t.partner_notes, '') AS partner_notes,
+              to_char(t.partner_enabled_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY') AS partner_enabled_at,
+              COALESCE(t.parent_partner_tenant_id::text, '') AS parent_partner_tenant_id,
+              COALESCE(pt.name, '') AS parent_partner_name,
+              (SELECT count(*) FROM tenants child WHERE child.parent_partner_tenant_id = t.id) AS partner_portfolio_count,
               (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
               COALESCE(t.openrouter_token_hint, '') AS openrouter_token_hint,
               COALESCE(t.ai_plan_key, 'free') AS ai_plan_key,
@@ -234,6 +262,7 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
               (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
               (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
          FROM tenants t
+         LEFT JOIN tenants pt ON pt.id = t.parent_partner_tenant_id
          LEFT JOIN users ou ON ou.id = t.owner_user_id
         ORDER BY t.created_at DESC`,
     );
@@ -244,6 +273,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
       ownerName: r.owner_name,
       ownerEmail: r.owner_email,
       active: r.active,
+      isPartner: Boolean(r.is_partner),
+      partnerFeatures: r.partner_features ?? {},
+      partnerMaxCompanies: Number(r.partner_max_companies || 0),
+      partnerNotes: r.partner_notes || "",
+      partnerEnabledAt: r.partner_enabled_at,
+      parentPartnerTenantId: r.parent_partner_tenant_id || "",
+      parentPartnerName: r.parent_partner_name || "",
+      partnerPortfolioCount: Number(r.partner_portfolio_count || 0),
       hasOpenrouterToken: r.has_openrouter_token,
       openrouterTokenHint: r.openrouter_token_hint,
       aiPlanKey:
@@ -279,6 +316,8 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     owner_name: string;
     owner_email: string;
     active: boolean;
+    is_partner: boolean;
+    parent_partner_tenant_id: string;
     created_at: string;
     role_name: string;
     role_key: string;
@@ -287,23 +326,31 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     employees_count: string;
     os_count: string;
   }>(
-    `SELECT t.id, t.name, t.cnpj,
+    `SELECT DISTINCT ON (t.id)
+            t.id, t.name, t.cnpj,
             COALESCE(t.owner_name, '') AS owner_name,
             COALESCE(t.owner_email, '') AS owner_email,
             t.active,
+            COALESCE(t.is_partner, false) AS is_partner,
+            COALESCE(t.parent_partner_tenant_id::text, '') AS parent_partner_tenant_id,
             to_char(t.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY') AS created_at,
-            tr.name AS role_name,
-            tr.key AS role_key,
+            COALESCE(tr.name, 'Parceiro (carteira)') AS role_name,
+            COALESCE(tr.key, 'partner_child') AS role_key,
             (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
             (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
             (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
             (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
-       FROM tenant_memberships tm
-       JOIN tenants t ON t.id = tm.tenant_id
-       JOIN tenant_roles tr ON tr.id = tm.role_id
-      WHERE tm.user_id = $1 AND t.active = true
-      ORDER BY t.created_at ASC`,
-    [userId],
+       FROM tenants t
+       LEFT JOIN tenant_memberships tm ON tm.tenant_id = t.id AND tm.user_id = $1
+       LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
+      WHERE (tm.user_id IS NOT NULL AND t.active = true)
+         OR t.parent_partner_tenant_id IN (
+           SELECT pt.id FROM tenants pt
+            WHERE pt.owner_user_id = $1 AND pt.active = true AND pt.is_partner = true
+         )
+         OR ($2 <> '' AND t.parent_partner_tenant_id::text = $2)
+      ORDER BY t.id, t.created_at ASC`,
+    [userId, partnerTenantId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -312,6 +359,14 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     ownerName: r.owner_name,
     ownerEmail: r.owner_email,
     active: r.active,
+    isPartner: Boolean(r.is_partner),
+    partnerFeatures: {},
+    partnerMaxCompanies: 0,
+    partnerNotes: "",
+    partnerEnabledAt: null,
+    parentPartnerTenantId: r.parent_partner_tenant_id || "",
+    parentPartnerName: "",
+    partnerPortfolioCount: 0,
     hasOpenrouterToken: false,
     openrouterTokenHint: "",
     aiPlanKey: "free",
@@ -330,6 +385,117 @@ export async function listCompanies(userId?: string, isMaster = true): Promise<C
     createdAt: r.created_at,
     userRoleName: r.role_name,
     userRoleKey: r.role_key,
+    clientsCount: Number(r.clients_count),
+    contractsCount: Number(r.contracts_count),
+    employeesCount: Number(r.employees_count),
+    serviceOrdersCount: Number(r.os_count),
+  }));
+}
+
+export async function listPartnerPortfolio(partnerTenantId: string): Promise<CompanyRow[]> {
+  if (!partnerTenantId) return [];
+  const { rows } = await getPool().query<{
+    id: string;
+    name: string;
+    cnpj: string;
+    owner_name: string;
+    owner_email: string;
+    active: boolean;
+    has_openrouter_token: boolean;
+    openrouter_token_hint: string;
+    ai_plan_key: string;
+    ai_monthly_message_limit: number;
+    ai_credit_depleted: boolean;
+    ai_credit_depleted_from: string;
+    ai_messages_this_month: string;
+    ai_tokens_this_month: string;
+    owner_blocked: boolean;
+    owner_totp_configured: boolean;
+    owner_last_login_at: string | null;
+    owner_login_count: number;
+    last_invite_sent_at: string | null;
+    active_sessions_count: string;
+    members_count: string;
+    created_at: string;
+    clients_count: string;
+    contracts_count: string;
+    employees_count: string;
+    os_count: string;
+  }>(
+    `SELECT t.id, t.name, t.cnpj,
+            COALESCE(t.owner_name, '') AS owner_name,
+            COALESCE(t.owner_email, '') AS owner_email,
+            t.active,
+            (COALESCE(t.openrouter_token_enc, '') <> '') AS has_openrouter_token,
+            COALESCE(t.openrouter_token_hint, '') AS openrouter_token_hint,
+            COALESCE(t.ai_plan_key, 'free') AS ai_plan_key,
+            COALESCE(t.ai_monthly_message_limit, 0) AS ai_monthly_message_limit,
+            (t.ai_credit_depleted_at IS NOT NULL) AS ai_credit_depleted,
+            COALESCE(t.ai_credit_depleted_from, '') AS ai_credit_depleted_from,
+            (SELECT count(*) FROM ai_messages m
+              WHERE m.tenant_id = t.id AND m.role = 'assistant'
+                AND m.created_at >= date_trunc('month', now())) AS ai_messages_this_month,
+            (SELECT COALESCE(sum(m.total_tokens), 0) FROM ai_messages m
+              WHERE m.tenant_id = t.id AND m.role = 'assistant'
+                AND m.created_at >= date_trunc('month', now())) AS ai_tokens_this_month,
+            COALESCE(ou.blocked, false) AS owner_blocked,
+            (ou.totp_configured_at IS NOT NULL) AS owner_totp_configured,
+            to_char(ou.last_login_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS owner_last_login_at,
+            COALESCE(ou.login_count, 0) AS owner_login_count,
+            (SELECT to_char(MAX(l.created_at) AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI')
+               FROM auth_setup_links l
+              WHERE l.user_id = t.owner_user_id AND (l.tenant_id = t.id OR l.tenant_id IS NULL)) AS last_invite_sent_at,
+            (SELECT count(*) FROM sessions s
+               JOIN users su ON su.id = s.user_id
+              WHERE s.active_tenant_id = t.id AND s.expires_at > now() AND su.is_master = false) AS active_sessions_count,
+            (SELECT count(*) FROM tenant_memberships tm WHERE tm.tenant_id = t.id) AS members_count,
+            to_char(t.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY') AS created_at,
+            (SELECT count(*) FROM clients cl WHERE cl.tenant_id = t.id) AS clients_count,
+            (SELECT count(*) FROM contracts c WHERE c.tenant_id = t.id) AS contracts_count,
+            (SELECT count(*) FROM employees e WHERE e.tenant_id = t.id) AS employees_count,
+            (SELECT count(*) FROM service_orders o WHERE o.tenant_id = t.id) AS os_count
+       FROM tenants t
+       LEFT JOIN users ou ON ou.id = t.owner_user_id
+      WHERE t.parent_partner_tenant_id = $1
+      ORDER BY t.created_at DESC`,
+    [partnerTenantId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    cnpj: r.cnpj,
+    ownerName: r.owner_name,
+    ownerEmail: r.owner_email,
+    active: r.active,
+    isPartner: false,
+    partnerFeatures: {},
+    partnerMaxCompanies: 0,
+    partnerNotes: "",
+    partnerEnabledAt: null,
+    parentPartnerTenantId: partnerTenantId,
+    parentPartnerName: "",
+    partnerPortfolioCount: 0,
+    hasOpenrouterToken: r.has_openrouter_token,
+    openrouterTokenHint: r.openrouter_token_hint,
+    aiPlanKey:
+      r.ai_plan_key === "standard" || r.ai_plan_key === "premium"
+        ? r.ai_plan_key
+        : "free",
+    aiMonthlyMessageLimit: Number(r.ai_monthly_message_limit || 0),
+    aiCreditDepleted: Boolean(r.ai_credit_depleted),
+    aiCreditDepletedFrom: r.ai_credit_depleted_from || "",
+    aiMessagesThisMonth: Number(r.ai_messages_this_month || 0),
+    aiTokensThisMonth: Number(r.ai_tokens_this_month || 0),
+    ownerBlocked: r.owner_blocked,
+    ownerTotpConfigured: r.owner_totp_configured,
+    ownerLastLoginAt: r.owner_last_login_at,
+    ownerLoginCount: Number(r.owner_login_count),
+    lastInviteSentAt: r.last_invite_sent_at,
+    activeSessionsCount: Number(r.active_sessions_count),
+    membersCount: Number(r.members_count),
+    createdAt: r.created_at,
+    userRoleName: "Parceiro",
+    userRoleKey: "partner",
     clientsCount: Number(r.clients_count),
     contractsCount: Number(r.contracts_count),
     employeesCount: Number(r.employees_count),

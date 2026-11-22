@@ -431,20 +431,40 @@ func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	targetID := strings.TrimSpace(in.TenantID)
-	// Permitir que o Master retorne ao contexto MASTER (Painel Global)
-	if sess.User.IsMaster && (targetID == "" || strings.EqualFold(targetID, "MASTER")) {
-		if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), ""); err != nil {
+	// Contexto MASTER: estritamente exclusivo do Admin Master
+	if targetID == "" || strings.EqualFold(targetID, "MASTER") {
+		if !sess.User.IsMaster {
+			httpx.Message(w, http.StatusForbidden, "O contexto MASTER é exclusivo do administrador global.")
+			return
+		}
+		if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), "master", ""); err != nil {
 			h.fail(w, "retornar ao contexto master", err)
 			return
 		}
 		httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "mode": "master"})
 		return
 	}
-	if targetID == "" {
-		httpx.Message(w, http.StatusBadRequest, msgBadRequest)
+	// Contexto PARCEIROS: dedicado a Donos de empresas promovidas a Parceiras
+	if strings.EqualFold(targetID, "PARTNER") {
+		if !sess.User.IsPartner {
+			httpx.Message(w, http.StatusForbidden, "Seu perfil não possui acesso liberado ao ambiente Parceiros.")
+			return
+		}
+		if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), "partner", ""); err != nil {
+			h.fail(w, "abrir ambiente parceiros", err)
+			return
+		}
+		httpx.Write(w, http.StatusOK, map[string]any{"ok": true, "mode": "partner"})
 		return
 	}
-	allowed, err := h.repo.UserCanAccessTenant(r.Context(), sess.User.ID, sess.User.IsMaster, targetID)
+	allowed, err := h.repo.UserCanAccessTenant(
+		r.Context(),
+		sess.User.ID,
+		sess.User.IsMaster,
+		sess.User.PartnerTenantID,
+		sess.HasPartnerFeature("companies:impersonate"),
+		targetID,
+	)
 	if err != nil {
 		h.fail(w, "verificar acesso à empresa", err)
 		return
@@ -453,7 +473,7 @@ func (h *Handlers) SwitchTenant(w http.ResponseWriter, r *http.Request) {
 		httpx.Message(w, http.StatusForbidden, "Você não possui vínculo ou permissão nesta empresa.")
 		return
 	}
-	if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), targetID); err != nil {
+	if err := h.repo.SwitchActiveTenant(r.Context(), TokenFrom(r), "tenant", targetID); err != nil {
 		h.fail(w, "alternar empresa ativa", err)
 		return
 	}

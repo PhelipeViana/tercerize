@@ -16,12 +16,17 @@ import (
 )
 
 type User struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Email          string `json:"email"`
-	IsMaster       bool   `json:"isMaster"`
-	Blocked        bool   `json:"blocked"`
-	TOTPConfigured bool   `json:"totpConfigured"`
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	Email               string          `json:"email"`
+	IsMaster            bool            `json:"isMaster"`
+	IsPartner           bool            `json:"isPartner"`
+	PartnerTenantID     string          `json:"partnerTenantId"`
+	PartnerTenantName   string          `json:"partnerTenantName"`
+	PartnerFeatures     map[string]bool `json:"partnerFeatures"`
+	PartnerMaxCompanies int             `json:"partnerMaxCompanies"`
+	Blocked             bool            `json:"blocked"`
+	TOTPConfigured      bool            `json:"totpConfigured"`
 }
 
 type Tenant struct {
@@ -31,6 +36,8 @@ type Tenant struct {
 	OwnerName             string `json:"ownerName"`
 	OwnerEmail            string `json:"ownerEmail"`
 	Active                bool   `json:"active"`
+	IsPartner             bool   `json:"isPartner"`
+	ParentPartnerTenantID string `json:"parentPartnerTenantId"`
 	HasOpenRouterToken    bool   `json:"hasOpenrouterToken"`
 	AIPlanKey             string `json:"aiPlanKey"`
 	AIMonthlyMessageLimit int    `json:"aiMonthlyMessageLimit"`
@@ -46,9 +53,17 @@ type RoleInfo struct {
 }
 
 type SessionContext struct {
-	User   User     `json:"user"`
-	Tenant Tenant   `json:"tenant"`
-	Role   RoleInfo `json:"role"`
+	ContextMode string   `json:"contextMode"`
+	User        User     `json:"user"`
+	Tenant      Tenant   `json:"tenant"`
+	Role        RoleInfo `json:"role"`
+}
+
+func (s *SessionContext) HasPartnerFeature(feat string) bool {
+	if s == nil || !s.User.IsPartner || s.User.PartnerTenantID == "" {
+		return false
+	}
+	return s.User.PartnerFeatures[feat]
 }
 
 func (s *SessionContext) CanManageAccess() bool {
@@ -323,11 +338,19 @@ func (r *Repository) FindDefaultTenantForUser(ctx context.Context, userID string
 	return tenantID, err
 }
 
-func (r *Repository) UserCanAccessTenant(ctx context.Context, userID string, isMaster bool, tenantID string) (bool, error) {
+func (r *Repository) UserCanAccessTenant(ctx context.Context, userID string, isMaster bool, partnerTenantID string, canImpersonate bool, tenantID string) (bool, error) {
 	if isMaster {
 		var exists bool
 		err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE id = $1)`, tenantID).Scan(&exists)
 		return exists, err
+	}
+	if partnerTenantID != "" && canImpersonate {
+		var isChild bool
+		if err := r.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM tenants WHERE id = $1 AND parent_partner_tenant_id = $2)`,
+			tenantID, partnerTenantID).Scan(&isChild); err == nil && isChild {
+			return true, nil
+		}
 	}
 	var exists bool
 	err := r.pool.QueryRow(ctx,
@@ -341,13 +364,15 @@ func (r *Repository) UserCanAccessTenant(ctx context.Context, userID string, isM
 
 func (r *Repository) InsertSession(ctx context.Context, userID, tenantID, tokenHash string, expiresAt time.Time) error {
 	var tenantPtr *string
+	contextMode := "master"
 	if strings.TrimSpace(tenantID) != "" {
 		t := strings.TrimSpace(tenantID)
 		tenantPtr = &t
+		contextMode = "tenant"
 	}
 	_, err := r.pool.Exec(ctx,
-		"INSERT INTO sessions (user_id, active_tenant_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
-		userID, tenantPtr, tokenHash, expiresAt)
+		"INSERT INTO sessions (user_id, active_tenant_id, context_mode, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5)",
+		userID, tenantPtr, contextMode, tokenHash, expiresAt)
 	return err
 }
 
@@ -361,17 +386,21 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 	return err
 }
 
-func (r *Repository) SwitchActiveTenant(ctx context.Context, token string, tenantID string) error {
+func (r *Repository) SwitchActiveTenant(ctx context.Context, token string, contextMode string, tenantID string) error {
 	if token == "" {
 		return errors.New("sessão ausente")
 	}
 	var tenantPtr *string
-	if trimmed := strings.TrimSpace(tenantID); trimmed != "" && !strings.EqualFold(trimmed, "MASTER") {
+	if contextMode == "tenant" {
+		trimmed := strings.TrimSpace(tenantID)
+		if trimmed == "" {
+			return errors.New("empresa inválida")
+		}
 		tenantPtr = &trimmed
 	}
 	_, err := r.pool.Exec(ctx,
-		`UPDATE sessions SET active_tenant_id = $1 WHERE token_hash = $2 AND expires_at > now()`,
-		tenantPtr, hashToken(token))
+		`UPDATE sessions SET context_mode = $1, active_tenant_id = $2 WHERE token_hash = $3 AND expires_at > now()`,
+		contextMode, tenantPtr, hashToken(token))
 	return err
 }
 
@@ -382,9 +411,11 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 	var permsRaw []byte
 
 	err := r.pool.QueryRow(ctx,
-		`SELECT u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_configured_at,
+		`SELECT COALESCE(s.context_mode, CASE WHEN s.active_tenant_id IS NULL THEN 'master' ELSE 'tenant' END),
+		        u.id, u.name, u.email, u.is_master, COALESCE(u.blocked, false), u.totp_configured_at,
 		        COALESCE(t.id::text, ''), COALESCE(t.name, ''), COALESCE(t.cnpj, ''),
 		        COALESCE(t.owner_name, ''), COALESCE(t.owner_email, ''), COALESCE(t.active, false),
+		        COALESCE(t.is_partner, false), COALESCE(t.parent_partner_tenant_id::text, ''),
 		        (COALESCE(t.openrouter_token_enc, '') <> ''),
 		        COALESCE(t.ai_plan_key, 'free'),
 		        COALESCE(t.ai_monthly_message_limit, 0),
@@ -398,8 +429,10 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 		   LEFT JOIN tenant_roles tr ON tr.id = tm.role_id
 		  WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).
 		Scan(
+			&s.ContextMode,
 			&s.User.ID, &s.User.Name, &s.User.Email, &s.User.IsMaster, &s.User.Blocked, &totpConfiguredAt,
 			&s.Tenant.ID, &s.Tenant.Name, &s.Tenant.CNPJ, &s.Tenant.OwnerName, &s.Tenant.OwnerEmail, &s.Tenant.Active,
+			&s.Tenant.IsPartner, &s.Tenant.ParentPartnerTenantID,
 			&s.Tenant.HasOpenRouterToken,
 			&s.Tenant.AIPlanKey, &s.Tenant.AIMonthlyMessageLimit, &s.Tenant.AICreditDepleted, &s.Tenant.AICreditDepletedFrom,
 			&roleID, &roleKey, &roleName, &permsRaw,
@@ -413,10 +446,32 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 	if s.User.Blocked {
 		return nil, nil
 	}
-	if !s.User.IsMaster && (s.Tenant.ID == "" || !s.Tenant.Active) {
-		return nil, nil
-	}
 	s.User.TOTPConfigured = totpConfiguredAt != nil
+	s.User.PartnerFeatures = map[string]bool{}
+
+	// Verifica se este usuário é Dono de alguma empresa ativa promovida ao nível Parceiros
+	if !s.User.IsMaster {
+		var pID, pName string
+		var pFeatRaw []byte
+		var pMax int
+		pErr := r.pool.QueryRow(ctx,
+			`SELECT pt.id::text, pt.name, COALESCE(pt.partner_features, '{}'::jsonb), COALESCE(pt.partner_max_companies, 0)
+			   FROM tenants pt
+			  WHERE pt.owner_user_id = $1
+			    AND pt.active = true
+			    AND pt.is_partner = true
+			  ORDER BY pt.partner_enabled_at ASC NULLS LAST, pt.created_at ASC
+			  LIMIT 1`, s.User.ID).Scan(&pID, &pName, &pFeatRaw, &pMax)
+		if pErr == nil && pID != "" {
+			s.User.IsPartner = true
+			s.User.PartnerTenantID = pID
+			s.User.PartnerTenantName = pName
+			s.User.PartnerMaxCompanies = pMax
+			if len(pFeatRaw) > 0 {
+				_ = json.Unmarshal(pFeatRaw, &s.User.PartnerFeatures)
+			}
+		}
+	}
 
 	if s.User.IsMaster {
 		s.Role = RoleInfo{
@@ -425,9 +480,55 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 			Name:        "Master",
 			Permissions: AllPermissionsTrue,
 		}
+		if s.Tenant.ID == "" {
+			s.ContextMode = "master"
+		} else {
+			s.ContextMode = "tenant"
+		}
 		return &s, nil
 	}
 
+	// Contexto MASTER é estritamente exclusivo do Admin Master
+	if s.ContextMode == "master" {
+		return nil, nil
+	}
+
+	// Contexto PARCEIROS: válido somente enquanto a promoção estiver ativa
+	if s.ContextMode == "partner" {
+		if !s.User.IsPartner {
+			return nil, nil
+		}
+		s.Tenant = Tenant{}
+		s.Role = RoleInfo{
+			ID:          "partner",
+			Key:         "partner",
+			Name:        "Parceiro",
+			Permissions: map[string]bool{},
+		}
+		return &s, nil
+	}
+
+	// Contexto TENANT (empresa cliente)
+	if s.Tenant.ID == "" {
+		return nil, nil
+	}
+
+	// Parceiro inspecionando uma empresa da própria carteira ("Ver sistema")
+	if s.User.IsPartner && s.Tenant.ParentPartnerTenantID != "" &&
+		s.Tenant.ParentPartnerTenantID == s.User.PartnerTenantID &&
+		s.User.PartnerFeatures["companies:impersonate"] {
+		s.Role = RoleInfo{
+			ID:          "partner_admin",
+			Key:         "owner",
+			Name:        "Parceiro (visão cliente)",
+			Permissions: AllPermissionsTrue,
+		}
+		return &s, nil
+	}
+
+	if !s.Tenant.Active {
+		return nil, nil
+	}
 	if roleID == nil || roleKey == nil || roleName == nil {
 		return nil, nil
 	}

@@ -5,11 +5,16 @@ import { getAIPlansDashboard } from "@/lib/ai/repository";
 import { firstAllowedRoute, requireSession } from "@/lib/auth/dal";
 import { listCompanies } from "@/lib/operations/repository";
 
-export default async function CompaniesPage() {
+interface Props {
+  searchParams: Promise<{ partner?: string }>;
+}
+
+export default async function CompaniesPage({ searchParams }: Props) {
   const session = await requireSession();
   if (!session.user.isMaster) {
     redirect(firstAllowedRoute(session));
   }
+  const { partner } = await searchParams;
   const [companies, aiDashboard] = await Promise.all([
     listCompanies(session.user.id, true),
     getAIPlansDashboard(),
@@ -24,7 +29,11 @@ export default async function CompaniesPage() {
       subtitle="Controle exclusivo Master de empresas clientes, acessos, planos de IA e ativação."
       hideHeader
     >
-      <CompaniesView companies={companies} aiDashboard={aiDashboard} />
+      <CompaniesView
+        companies={companies}
+        aiDashboard={aiDashboard}
+        initialPartnerFilter={partner ?? ""}
+      />
     </AdminShell>
   );
 }

@@ -44,6 +44,7 @@ import { formatCNPJ } from "@/lib/utils/cnpj";
 interface Props {
   companies: CompanyRow[];
   aiDashboard: AIPlansDashboardData;
+  initialPartnerFilter?: string;
 }
 
 const PLAN_META: Record<
@@ -1202,9 +1203,10 @@ function AIPlansModal({
   );
 }
 
-export function CompaniesView({ companies, aiDashboard }: Props) {
+export function CompaniesView({ companies, aiDashboard, initialPartnerFilter = "" }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AccessFilter>("all");
+  const [partnerFilter, setPartnerFilter] = useState(initialPartnerFilter);
   const [createOpen, setCreateOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<CompanyRow | null>(null);
@@ -1232,6 +1234,7 @@ export function CompaniesView({ companies, aiDashboard }: Props) {
   const filteredCompanies = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies.filter((c) => {
+      if (partnerFilter && c.parentPartnerTenantId !== partnerFilter) return false;
       if (filter === "accessed" && !hasClientAccessed(c)) return false;
       if (filter === "pending" && hasClientAccessed(c)) return false;
       if (filter === "inactive" && c.active) return false;
@@ -1240,10 +1243,16 @@ export function CompaniesView({ companies, aiDashboard }: Props) {
         c.name.toLowerCase().includes(q) ||
         c.cnpj.toLowerCase().includes(q) ||
         c.ownerName.toLowerCase().includes(q) ||
-        c.ownerEmail.toLowerCase().includes(q)
+        c.ownerEmail.toLowerCase().includes(q) ||
+        c.parentPartnerName.toLowerCase().includes(q)
       );
     });
-  }, [companies, query, filter]);
+  }, [companies, query, filter, partnerFilter]);
+
+  const activePartnerFilterName = useMemo(
+    () => companies.find((c) => c.id === partnerFilter)?.name ?? "",
+    [companies, partnerFilter],
+  );
 
   return (
     <div className="space-y-5">
@@ -1362,6 +1371,24 @@ export function CompaniesView({ companies, aiDashboard }: Props) {
 
       {/* Tabela principal full-width */}
       <section className="rounded-[28px] solid-surface p-5 sm:p-6 space-y-5">
+        {partnerFilter && (
+          <div className="rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/70 dark:bg-blue-950/35 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-semibold text-slate-800 dark:text-slate-200">
+              Filtrando carteira do parceiro:{" "}
+              <strong className="text-[#3B68F7] dark:text-blue-300">
+                {activePartnerFilterName || partnerFilter}
+              </strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => setPartnerFilter("")}
+              className="font-bold text-[#3B68F7] dark:text-blue-300 hover:underline cursor-pointer"
+            >
+              Mostrar todas as empresas
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div
             role="tablist"
@@ -1457,7 +1484,19 @@ export function CompaniesView({ companies, aiDashboard }: Props) {
                   return (
                     <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-white/5 transition-colors">
                       <td className="px-4 py-4 align-top">
-                        <p className="font-bold text-slate-900 dark:text-white">{c.name}</p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="font-bold text-slate-900 dark:text-white">{c.name}</p>
+                          {c.isPartner && (
+                            <span className="rounded-full bg-indigo-100 dark:bg-indigo-950/80 px-2 py-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                              Parceira ({c.partnerPortfolioCount})
+                            </span>
+                          )}
+                          {c.parentPartnerName && (
+                            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                              Via: {c.parentPartnerName}
+                            </span>
+                          )}
+                        </div>
                         <p className="font-mono text-xs text-slate-500 dark:text-slate-400 mt-0.5">{c.cnpj}</p>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
                           {c.contractsCount} contrato(s) · {c.employeesCount} colab. · {c.serviceOrdersCount} OS

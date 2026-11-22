@@ -102,4 +102,18 @@ Todos os formulários aplicam formatação em tempo real e validação dupla (na
   - A lista de **Contexto** no topo e o painel de **Histórico** lateral são **retráteis**, mantendo a tela limpa para leitura de relatórios.
   - Em cada resposta (ou ao solicitar *"gerar em Excel"* / *"gerar em PDF"* no chat), utilize **Excel (.xlsx)** (planilha formatada com valores numéricos em R$ e aba de dados filtrável), **Baixar PDF** (documento A4 com cabeçalho oficial da empresa e paginação), **Copiar** ou **Imprimir**.
 
+---
+
+## 8. Ambiente Dedicado Parceiros (3 Níveis: MASTER · Parceiros · Clientes)
+
+- **Aba exclusiva do Admin Master (`/admin/partners`)**:
+  - Cadastre uma nova empresa parceira (**Novo parceiro**) ou promova uma empresa já existente (**Promover empresa**) para liberar o ambiente dedicado **Parceiros**.
+  - Controle por parceiro a **cota máxima de empresas** (`0` = ilimitada) e a matriz evolutiva de **recursos liberados** (`Cadastrar empresas`, `Editar`, `Ativar/Desativar`, `Ver sistema`, `Token OpenRouter`, `Planos pagos de IA` e futuros módulos).
+  - Ao **Remover promoção**, o acesso ao ambiente **Parceiros** é revogado imediatamente sem apagar as empresas clientes já cadastradas.
+- **Ambiente Parceiros (`/partner/companies`)**:
+  - Totalmente isolado do **MASTER** (`context_mode = 'partner'`).
+  - O Dono Parceiro alterna pelo seletor no topo entre **Parceiros**, a sua própria empresa e as empresas clientes que ele mesmo cadastrou.
+  - Pode cadastrar novas empresas com **Token OpenRouter** opcional, editar, ativar/desativar e entrar em **Ver sistema** exclusivamente na própria carteira.
+
+
 
