@@ -232,6 +232,60 @@ export function AdminShell({
               );
             })}
           </ul>
+
+          {/* Menu dedicado do ambiente Parceiros diretamente na barra lateral */}
+          {isPartner && !isPartnerPortalMode && (
+            <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10">
+              <form action={switchTenantAction} onSubmit={() => setOpen(false)}>
+                <input type="hidden" name="tenantId" value="PARTNER" />
+                <button
+                  type="submit"
+                  className="flex w-full min-h-11 items-center justify-between gap-2 rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/80 dark:bg-blue-950/45 px-4 py-3 text-[14px] font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100/90 dark:hover:bg-blue-950/75 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                >
+                  <span className="flex items-center gap-3.5 min-w-0">
+                    <Handshake className="size-[19px] shrink-0 stroke-[1.9]" aria-hidden="true" />
+                    <span className="truncate">Parceiros</span>
+                  </span>
+                  <span className="rounded-full bg-[#3B68F7] px-2 py-0.5 text-[10px] font-bold text-white shrink-0">
+                    Carteira
+                  </span>
+                </button>
+              </form>
+            </div>
+          )}
+
+          {isPartnerPortalMode && session.user.partnerTenantId && (
+            <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10">
+              <form action={switchTenantAction} onSubmit={() => setOpen(false)}>
+                <input type="hidden" name="tenantId" value={session.user.partnerTenantId} />
+                <button
+                  type="submit"
+                  className="flex w-full min-h-11 items-center gap-3.5 rounded-2xl px-4 py-3 text-[13px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-white/75 dark:hover:bg-white/5 hover:text-slate-950 dark:hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                >
+                  <Building2 className="size-[18px] shrink-0 stroke-[1.8]" aria-hidden="true" />
+                  <span className="truncate">Voltar para {session.user.partnerTenantName}</span>
+                </button>
+              </form>
+            </div>
+          )}
+
+          {isMaster && !isMasterGlobalMode && session.tenant.isPartner && (
+            <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10">
+              <Link
+                href={`/admin/companies?partner=${encodeURIComponent(session.tenant.id)}`}
+                onClick={() => setOpen(false)}
+                className="flex w-full min-h-11 items-center justify-between gap-2 rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/80 dark:bg-blue-950/45 px-4 py-3 text-[14px] font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-blue-100/90 dark:hover:bg-blue-950/75 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+              >
+                <span className="flex items-center gap-3.5 min-w-0">
+                  <Handshake className="size-[19px] shrink-0 stroke-[1.9]" aria-hidden="true" />
+                  <span className="truncate">Parceiros</span>
+                </span>
+                <span className="rounded-full bg-[#3B68F7] px-2 py-0.5 text-[10px] font-bold text-white shrink-0">
+                  Carteira
+                </span>
+              </Link>
+            </div>
+          )}
         </nav>
 
         {/* Bottom User Profile Pill */}
