@@ -15,7 +15,6 @@ const PARTNER_FEATURE_KEYS = [
   "companies:toggle_active",
   "companies:impersonate",
   "companies:ai_token",
-  "companies:ai_paid_plans",
   "analytics:portfolio",
 ] as const;
 
@@ -174,7 +173,6 @@ export async function partnerCreateCompanyStateAction(
   const ownerName = text(formData.get("ownerName"));
   const ownerEmail = text(formData.get("ownerEmail"));
   const openrouterToken = text(formData.get("openrouterToken"));
-  const aiPlanKey = text(formData.get("aiPlanKey")) || "free";
 
   const values = { name, cnpj: rawCnpj, ownerName, ownerEmail };
 
@@ -205,7 +203,7 @@ export async function partnerCreateCompanyStateAction(
   try {
     const res = await apiFetch("/api/partner/companies", {
       method: "POST",
-      body: { name, cnpj: cnpjCheck.formatted, ownerName, ownerEmail, openrouterToken, aiPlanKey },
+      body: { name, cnpj: cnpjCheck.formatted, ownerName, ownerEmail, openrouterToken },
     });
     const data = (await res.json().catch(() => ({}))) as {
       name?: string;
@@ -254,7 +252,6 @@ export async function partnerUpdateCompanyStateAction(
   const resendLink = formData.get("resendLink") === "on";
   const openrouterToken = text(formData.get("openrouterToken"));
   const clearOpenrouterToken = formData.get("clearOpenrouterToken") === "on";
-  const aiPlanKey = text(formData.get("aiPlanKey")) || "";
 
   if (!tenantId) return { message: "Empresa inválida." };
   if (name.length < 2) return { fieldError: { field: "name", message: "Informe a razão social da empresa." } };
@@ -277,7 +274,6 @@ export async function partnerUpdateCompanyStateAction(
         resendLink,
         openrouterToken,
         clearOpenrouterToken,
-        aiPlanKey,
       },
     });
     const data = (await res.json().catch(() => ({}))) as {

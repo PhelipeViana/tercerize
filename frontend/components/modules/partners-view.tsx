@@ -70,20 +70,13 @@ const PARTNER_FEATURE_DEFS: PartnerFeatureDef[] = [
   {
     key: "companies:ai_token",
     label: "Configurar Token OpenRouter",
-    hint: "Permite informar ou atualizar o token de IA (plano Free por padrão).",
+    hint: "Permite informar ou atualizar o token OpenRouter da empresa cliente (os planos de IA continuam exclusivos do Master).",
     defaultOn: true,
-  },
-  {
-    key: "companies:ai_paid_plans",
-    label: "Liberar planos pagos de IA",
-    hint: "Permite ao parceiro escolher Padrão/Premium (além do Free) para seus clientes.",
-    defaultOn: false,
-    futureTag: true,
   },
   {
     key: "analytics:portfolio",
     label: "Relatórios da carteira",
-    hint: "Reservado para futuros painéis consolidados de consumo e operação da carteira.",
+    hint: "Reservado para futuros painéis consolidados de operação da carteira.",
     defaultOn: false,
     futureTag: true,
   },

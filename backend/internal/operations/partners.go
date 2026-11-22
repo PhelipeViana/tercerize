@@ -18,7 +18,6 @@ var allowedPartnerFeatureKeys = []string{
 	"companies:toggle_active",
 	"companies:impersonate",
 	"companies:ai_token",
-	"companies:ai_paid_plans",
 	"analytics:portfolio",
 }
 
@@ -29,7 +28,6 @@ func defaultPartnerFeatures() map[string]bool {
 		"companies:toggle_active": true,
 		"companies:impersonate":   true,
 		"companies:ai_token":      true,
-		"companies:ai_paid_plans": false,
 		"analytics:portfolio":     false,
 	}
 }
@@ -360,7 +358,6 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 		OwnerName       string `json:"ownerName"`
 		OwnerEmail      string `json:"ownerEmail"`
 		OpenRouterToken string `json:"openrouterToken"`
-		AIPlanKey       string `json:"aiPlanKey"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -435,10 +432,8 @@ func (h *Handlers) PartnerCreateCompany(w http.ResponseWriter, r *http.Request) 
 		tokenHint = secretbox.MaskHint(rawToken)
 	}
 
-	aiPlanKey := "free"
-	if sess.HasPartnerFeature("companies:ai_paid_plans") && strings.TrimSpace(in.AIPlanKey) != "" {
-		aiPlanKey = normalizeAIPlanKey(in.AIPlanKey)
-	}
+	// Planos de IA são definidos exclusivamente pelo Admin Master (toda nova empresa inicia no default 'free')
+	const aiPlanKey = "free"
 
 	var tenantID string
 	err = tx.QueryRow(ctx,
@@ -521,7 +516,6 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 		ResendLink           bool   `json:"resendLink"`
 		OpenRouterToken      string `json:"openrouterToken"`
 		ClearOpenRouterToken bool   `json:"clearOpenrouterToken"`
-		AIPlanKey            string `json:"aiPlanKey"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
 		httpx.Message(w, http.StatusBadRequest, "Dados inválidos.")
@@ -628,17 +622,6 @@ func (h *Handlers) PartnerUpdateCompany(w http.ResponseWriter, r *http.Request) 
 			_, _ = tx.Exec(ctx,
 				`UPDATE tenants SET openrouter_token_enc = $1, openrouter_token_hint = $2, ai_credit_depleted_at = NULL, ai_credit_depleted_from = '' WHERE id = $3`,
 				enc, secretbox.MaskHint(rawToken), tenantID)
-		}
-	}
-
-	if sess.HasPartnerFeature("companies:ai_paid_plans") && strings.TrimSpace(in.AIPlanKey) != "" {
-		newPlan := normalizeAIPlanKey(in.AIPlanKey)
-		if newPlan != "free" {
-			_, _ = tx.Exec(ctx,
-				`UPDATE tenants SET ai_plan_key = $1, ai_credit_depleted_at = NULL, ai_credit_depleted_from = '' WHERE id = $2`,
-				newPlan, tenantID)
-		} else {
-			_, _ = tx.Exec(ctx, `UPDATE tenants SET ai_plan_key = 'free' WHERE id = $1`, tenantID)
 		}
 	}
 

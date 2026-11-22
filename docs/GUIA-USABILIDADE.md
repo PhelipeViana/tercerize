@@ -108,7 +108,7 @@ Todos os formulários aplicam formatação em tempo real e validação dupla (na
 
 - **Aba exclusiva do Admin Master (`/admin/partners`)**:
   - Cadastre uma nova empresa parceira (**Novo parceiro**) ou promova uma empresa já existente (**Promover empresa**) para liberar o ambiente dedicado **Parceiros**.
-  - Controle por parceiro a **cota máxima de empresas** (`0` = ilimitada) e a matriz evolutiva de **recursos liberados** (`Cadastrar empresas`, `Editar`, `Ativar/Desativar`, `Ver sistema`, `Token OpenRouter`, `Planos pagos de IA` e futuros módulos).
+  - Controle por parceiro a **cota máxima de empresas** (`0` = ilimitada) e a matriz evolutiva de **recursos liberados** (`Cadastrar empresas`, `Editar`, `Ativar/Desativar`, `Ver sistema`, `Token OpenRouter` e futuros módulos). Os planos de IA (`Free`, `Padrão`, `Premium`) permanecem exclusivos do Admin Master.
   - Ao **Remover promoção**, o acesso ao ambiente **Parceiros** é revogado imediatamente sem apagar as empresas clientes já cadastradas.
 - **Ambiente Parceiros (`/partner/companies`)**:
   - Totalmente isolado do **MASTER** (`context_mode = 'partner'`).

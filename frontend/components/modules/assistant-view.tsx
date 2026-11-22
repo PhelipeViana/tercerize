@@ -818,7 +818,7 @@ export function AssistantView({
                     <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
                       Assistente IA & Relatórios
                     </h1>
-                    {hasOpenrouterToken && (
+                    {isMaster && hasOpenrouterToken && (
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold",

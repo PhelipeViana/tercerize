@@ -7,7 +7,6 @@ import {
   Building2,
   CheckCircle2,
   Clock,
-  Crown,
   ExternalLink,
   Eye,
   EyeOff,
@@ -25,7 +24,6 @@ import {
   Sparkles,
   UserCheck,
   Users,
-  Zap,
 } from "lucide-react";
 import { switchTenantAction } from "@/app/actions/auth";
 import {
@@ -35,7 +33,6 @@ import {
   partnerUpdateCompanyStateAction,
 } from "@/app/actions/partners";
 import { ConfirmModal, Modal } from "@/components/ui/modal";
-import type { AIPlanKey } from "@/lib/auth/repository";
 import type { CompanyRow } from "@/lib/operations/repository";
 import { formatCNPJ } from "@/lib/utils/cnpj";
 
@@ -52,41 +49,14 @@ function hasClientAccessed(c: CompanyRow): boolean {
   return c.ownerLoginCount > 0 || c.ownerTotpConfigured;
 }
 
-function PartnerPlanBadge({ planKey }: { planKey: AIPlanKey }) {
-  if (planKey === "premium") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-950/80 px-2.5 py-0.5 text-[11px] font-bold text-violet-700 dark:text-violet-300">
-        <Crown className="size-3" aria-hidden="true" />
-        IA Premium
-      </span>
-    );
-  }
-  if (planKey === "standard") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-950/80 px-2.5 py-0.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300">
-        <Zap className="size-3" aria-hidden="true" />
-        IA Padrão
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/75 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
-      <Sparkles className="size-3" aria-hidden="true" />
-      IA Free
-    </span>
-  );
-}
-
 function PartnerCreateModal({
   open,
   canSetToken,
-  canPaidPlans,
   onClose,
   onCreated,
 }: {
   open: boolean;
   canSetToken: boolean;
-  canPaidPlans: boolean;
   onClose: () => void;
   onCreated: (notice: { text: string; warning?: string }) => void;
 }) {
@@ -209,7 +179,7 @@ function PartnerCreateModal({
                 <Sparkles className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
                 <span>Token OpenRouter (Assistente IA)</span>
               </label>
-              <span className="text-[11px] text-slate-500">Opcional · plano Free</span>
+              <span className="text-[11px] text-slate-500">Opcional · exclusivo desta empresa</span>
             </div>
             <div className="relative">
               <input
@@ -230,23 +200,6 @@ function PartnerCreateModal({
                 {showToken ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
               </button>
             </div>
-            {canPaidPlans && (
-              <div className="space-y-1">
-                <label htmlFor="pc-ai-plan" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Plano de IA
-                </label>
-                <select
-                  id="pc-ai-plan"
-                  name="aiPlanKey"
-                  defaultValue="free"
-                  className="w-full min-h-10 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-900 dark:text-white"
-                >
-                  <option value="free">Free (Default gratuito)</option>
-                  <option value="standard">Padrão (Pago econômico)</option>
-                  <option value="premium">Premium (Pago máxima análise)</option>
-                </select>
-              </div>
-            )}
           </div>
         )}
 
@@ -281,14 +234,12 @@ function PartnerEditModal({
   company,
   canToggle,
   canSetToken,
-  canPaidPlans,
   onClose,
   onUpdated,
 }: {
   company: CompanyRow | null;
   canToggle: boolean;
   canSetToken: boolean;
-  canPaidPlans: boolean;
   onClose: () => void;
   onUpdated: (notice: { text: string; warning?: string }) => void;
 }) {
@@ -455,23 +406,6 @@ function PartnerEditModal({
                 {showToken ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
               </button>
             </div>
-            {canPaidPlans && (
-              <div className="space-y-1">
-                <label htmlFor="pe-plan" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Plano de IA
-                </label>
-                <select
-                  id="pe-plan"
-                  name="aiPlanKey"
-                  defaultValue={company.aiPlanKey}
-                  className="w-full min-h-10 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-900 dark:text-white"
-                >
-                  <option value="free">Free (Default gratuito)</option>
-                  <option value="standard">Padrão (Pago econômico)</option>
-                  <option value="premium">Premium (Pago máxima análise)</option>
-                </select>
-              </div>
-            )}
             {company.hasOpenrouterToken && (
               <label className="inline-flex items-center gap-2 text-xs text-rose-700 dark:text-rose-300 cursor-pointer">
                 <input type="checkbox" name="clearOpenrouterToken" className="size-4 rounded border-rose-300 text-rose-600" />
@@ -535,7 +469,6 @@ export function PartnerCompaniesView({
   const canToggle = Boolean(partnerFeatures["companies:toggle_active"]);
   const canImpersonate = Boolean(partnerFeatures["companies:impersonate"]);
   const canSetToken = Boolean(partnerFeatures["companies:ai_token"]);
-  const canPaidPlans = Boolean(partnerFeatures["companies:ai_paid_plans"]);
   const quotaReached = partnerMaxCompanies > 0 && companies.length >= partnerMaxCompanies;
 
   const stats = useMemo(() => {
@@ -828,7 +761,10 @@ export function PartnerCompaniesView({
                             </span>
                           )}
                           {c.hasOpenrouterToken ? (
-                            <PartnerPlanBadge planKey={c.aiPlanKey} />
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-950/80 px-2.5 py-0.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300">
+                              <Sparkles className="size-3" aria-hidden="true" />
+                              IA ativa
+                            </span>
                           ) : (
                             <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
                               Sem IA
@@ -908,7 +844,6 @@ export function PartnerCompaniesView({
       <PartnerCreateModal
         open={createOpen}
         canSetToken={canSetToken}
-        canPaidPlans={canPaidPlans}
         onClose={() => setCreateOpen(false)}
         onCreated={setNotice}
       />
@@ -917,7 +852,6 @@ export function PartnerCompaniesView({
         company={editingCompany}
         canToggle={canToggle}
         canSetToken={canSetToken}
-        canPaidPlans={canPaidPlans}
         onClose={() => setEditingCompany(null)}
         onUpdated={setNotice}
       />
