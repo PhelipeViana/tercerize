@@ -68,7 +68,10 @@ func run(log *slog.Logger) error {
 	authRepo := auth.NewRepository(pool)
 	authHandlers := auth.NewHandlers(authRepo, auth.NewLoginLimiter(rdb), mailSender, cfg.AppName, cfg.AppURL, cfg.CookieSecure, log)
 	opHandlers := operations.NewHandlers(pool, authRepo, mailSender, cfg.AppURL, cfg.AIEncryptionKey, log)
-	aiHandlers := ai.NewHandlers(pool, rdb, cfg.AppURL, cfg.AppName, cfg.AIEncryptionKey, log)
+	orClient := ai.NewOpenRouterClient(cfg.AppURL, cfg.AppName, rdb, log)
+	knowledgeWorker := ai.NewKnowledgeWorker(pool, rdb, orClient, cfg.AIEncryptionKey, cfg.AIEmbeddingModel, cfg.AIEmbeddingDimensions, cfg.AIPlatformEmbeddingKey, log)
+	aiHandlers := ai.NewHandlers(pool, rdb, orClient, knowledgeWorker, cfg.AIEncryptionKey, cfg.AIResponseCacheTTLSeconds, cfg.AIOpenRouterResponseCache, cfg.AIOpenRouterCacheTTL, log)
+	go knowledgeWorker.Run(ctx)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

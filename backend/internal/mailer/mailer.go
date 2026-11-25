@@ -2,6 +2,7 @@ package mailer
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -11,6 +12,11 @@ import (
 
 	"tercerize/backend/internal/config"
 )
+
+// ErrNotConfigured indicates that delivery cannot be attempted because the
+// required SMTP settings are absent. Callers use this to accurately tell the
+// operator that an activation link was not delivered.
+var ErrNotConfigured = errors.New("SMTP não configurado")
 
 type Mailer struct {
 	cfg config.MailConfig
@@ -59,8 +65,8 @@ func (m *Mailer) SendAuthenticatorLink(toEmail, toName, companyName, roleName, a
 </html>`, m.cfg.FromName, toName, contextLine, m.cfg.FromName, activationURL, activationURL)
 
 	if !m.Configured() {
-		m.log.Warn("SMTP não configurado; exibindo link de ativação no log", "to", toEmail, "url", activationURL)
-		return nil
+		m.log.Warn("SMTP não configurado; link de ativação não enviado", "to", toEmail)
+		return ErrNotConfigured
 	}
 
 	return m.sendHTML(toEmail, subject, htmlBody)

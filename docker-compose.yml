@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -42,6 +42,12 @@ services:
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Tercerize}
       AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-tercerize_openrouter_aes256_key_2026}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      AI_EMBEDDING_DIMENSIONS: ${AI_EMBEDDING_DIMENSIONS:-1536}
+      AI_PLATFORM_EMBEDDING_KEY: ${AI_PLATFORM_EMBEDDING_KEY:-}
+      AI_RESPONSE_CACHE_TTL_SECONDS: ${AI_RESPONSE_CACHE_TTL_SECONDS:-600}
+      AI_OPENROUTER_RESPONSE_CACHE: ${AI_OPENROUTER_RESPONSE_CACHE:-false}
+      AI_OPENROUTER_CACHE_TTL: ${AI_OPENROUTER_CACHE_TTL:-300}
     depends_on:
       db:
         condition: service_healthy

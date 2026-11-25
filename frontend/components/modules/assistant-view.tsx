@@ -8,14 +8,16 @@ import {
   AlertCircle,
   AlertTriangle,
   Archive,
+  ArrowUpRight,
   BarChart3,
   Building2,
   Check,
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Clock,
   Copy,
-  Crown,
+  Cpu,
   FileDown,
   FileSpreadsheet,
   FileText,
@@ -39,8 +41,7 @@ import {
 } from "lucide-react";
 import { deleteAIConversationAction, sendAIChatAction } from "@/app/actions/ai";
 import { ConfirmModal, Modal } from "@/components/ui/modal";
-import type { AIConversationRow, AIMessageRow } from "@/lib/ai/repository";
-import type { AIPlanKey } from "@/lib/auth/repository";
+import type { AICitation, AIConversationRow, AIMessageRow, AIQuickReply } from "@/lib/ai/repository";
 import { cn } from "@/lib/utils";
 import { exportReportToExcel, exportReportToPDF } from "@/lib/utils/report-export";
 
@@ -53,9 +54,7 @@ interface AssistantViewProps {
   tenantName: string;
   tenantCnpj: string;
   hasOpenrouterToken: boolean;
-  initialPlanKey: AIPlanKey;
   initialCreditDepleted: boolean;
-  initialCreditDepletedFrom: string;
   isMaster: boolean;
   roleName: string;
   allowedModules: AllowedModuleInfo[];
@@ -64,10 +63,17 @@ interface AssistantViewProps {
   initialMessages: AIMessageRow[];
 }
 
-function formatPlanLabel(key: string): string {
-  if (key === "premium") return "Premium";
-  if (key === "standard") return "Padrão";
-  return "Free";
+function formatModelTelemetry(
+  modelUsed?: string,
+  latencyMs?: number,
+): { model: string; duration: string | null } | null {
+  if (!modelUsed || modelUsed === "guardrail" || modelUsed === "clarification_gate") return null;
+  const shortModel = modelUsed.includes("/") ? modelUsed.split("/")[1] : modelUsed;
+  let duration: string | null = null;
+  if (typeof latencyMs === "number" && latencyMs > 0) {
+    duration = latencyMs < 1000 ? `${Math.round(latencyMs)}\u00A0ms` : `${(latencyMs / 1000).toFixed(1)}\u00A0s`;
+  }
+  return { model: shortModel, duration };
 }
 
 interface QuickPromptCard {
@@ -439,9 +445,7 @@ export function AssistantView({
   tenantName,
   tenantCnpj,
   hasOpenrouterToken,
-  initialPlanKey,
   initialCreditDepleted,
-  initialCreditDepletedFrom,
   isMaster,
   roleName,
   allowedModules,
@@ -453,14 +457,15 @@ export function AssistantView({
   const [conversations, setConversations] = useState<AIConversationRow[]>(initialConversations);
   const [activeConversationId, setActiveConversationId] = useState<string>(initialConversationId);
   const [messages, setMessages] = useState<AIMessageRow[]>(initialMessages);
-  const [planKey, setPlanKey] = useState<AIPlanKey>(initialPlanKey);
   const [creditNotice, setCreditNotice] = useState<string | null>(
     initialCreditDepleted
-      ? `Os créditos OpenRouter do plano ${formatPlanLabel(initialCreditDepletedFrom)} acabaram e esta empresa foi alterada automaticamente para o plano Free.`
+      ? "Os créditos OpenRouter desta empresa acabaram; respostas em modo de contingência gratuita até recarga."
       : null,
   );
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
+  const [streamingContent, setStreamingContent] = useState("");
   const [loadingPhraseIdx, setLoadingPhraseIdx] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -507,10 +512,10 @@ export function AssistantView({
     setErrorMsg(null);
   }, [initialConversationId, initialMessages]);
 
-  // Smooth scroll to bottom on new messages or loading state
+  // Smooth scroll to bottom on new messages or live streaming deltas
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, sending]);
+  }, [messages.length, sending, streamingContent]);
 
   // Rotate honest progress message while waiting for OpenRouter
   useEffect(() => {
@@ -556,12 +561,46 @@ export function AssistantView({
     [allowedKeys],
   );
 
+  function applyFinalAssistantReply(
+    cleanPrompt: string,
+    replyMessage: AIMessageRow,
+    nextConvId?: string,
+    notice?: string,
+  ) {
+    setMessages((prev) => [...prev, replyMessage]);
+    if (notice) {
+      setCreditNotice(notice);
+    }
+
+    const resolvedConvId = nextConvId || activeConversationId;
+    if (resolvedConvId && resolvedConvId !== activeConversationId) {
+      setActiveConversationId(resolvedConvId);
+      const previewTitle = cleanPrompt.length > 72 ? `${cleanPrompt.slice(0, 72)}…` : cleanPrompt;
+      setConversations((prev) => [
+        { id: resolvedConvId, title: previewTitle, updatedAt: replyMessage.createdAt },
+        ...prev.filter((c) => c.id !== resolvedConvId),
+      ]);
+      router.replace(`/admin/assistant?c=${encodeURIComponent(resolvedConvId)}`, { scroll: false });
+    } else if (resolvedConvId) {
+      setConversations((prev) => {
+        const existing = prev.find((c) => c.id === resolvedConvId);
+        if (!existing) return prev;
+        return [
+          { ...existing, updatedAt: replyMessage.createdAt },
+          ...prev.filter((c) => c.id !== resolvedConvId),
+        ];
+      });
+    }
+  }
+
   async function submitPrompt(rawText: string) {
     const clean = rawText.trim();
     if (clean.length < 2 || sending || !hasOpenrouterToken) return;
 
     setErrorMsg(null);
     setSending(true);
+    setLiveStatus("Analisando pergunta...");
+    setStreamingContent("");
 
     const optimisticUser: AIMessageRow = {
       id: `temp-user-${Date.now()}`,
@@ -572,48 +611,146 @@ export function AssistantView({
     setMessages((prev) => [...prev, optimisticUser]);
     setDraft("");
 
+    let handledViaStream = false;
+    try {
+      const res = await fetch("/api/ai/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({
+          conversationId: activeConversationId || "",
+          message: clean,
+          tier: "good",
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (res.ok && contentType.includes("text/event-stream") && res.body) {
+        handledViaStream = true;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finished = false;
+        let streamError: string | null = null;
+        let pendingQuickReplies: AIQuickReply[] | undefined;
+
+        const processEventBlock = (rawBlock: string) => {
+          const lines = rawBlock.split("\n");
+          let eventName = "message";
+          const dataLines: string[] = [];
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+          if (dataLines.length === 0) return;
+          const payloadText = dataLines.join("\n");
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = JSON.parse(payloadText) as Record<string, unknown>;
+          } catch {
+            return;
+          }
+
+          if (eventName === "status" && typeof payload.label === "string") {
+            setLiveStatus(payload.label);
+          } else if (eventName === "delta" && typeof payload.text === "string") {
+            setLiveStatus(null);
+            setStreamingContent((prev) => prev + payload.text);
+          } else if (eventName === "clarification" && Array.isArray(payload.quickReplies)) {
+            pendingQuickReplies = payload.quickReplies as AIQuickReply[];
+          } else if (eventName === "error" && typeof payload.message === "string") {
+            streamError = payload.message;
+          } else if (eventName === "done") {
+            finished = true;
+            const msgRaw = payload.message as AIMessageRow | undefined;
+            const cacheRaw = payload.cache as { status?: string } | undefined;
+            if (msgRaw) {
+              const finalMsg: AIMessageRow = {
+                ...msgRaw,
+                cacheStatus: msgRaw.cacheStatus ?? cacheRaw?.status,
+                citations: (msgRaw.citations ?? payload.citations) as AICitation[] | undefined,
+                quickReplies: (msgRaw.quickReplies ?? pendingQuickReplies) as AIQuickReply[] | undefined,
+              };
+              applyFinalAssistantReply(
+                clean,
+                finalMsg,
+                typeof payload.conversationId === "string" ? payload.conversationId : undefined,
+                typeof payload.creditNotice === "string" ? payload.creditNotice : undefined,
+              );
+            }
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            if (part.trim()) processEventBlock(part);
+          }
+        }
+        if (buffer.trim()) {
+          processEventBlock(buffer);
+        }
+
+        setSending(false);
+        setLiveStatus(null);
+        setStreamingContent("");
+
+        if (streamError || !finished) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
+          setDraft(clean);
+          setErrorMsg(streamError ?? "Conexão interrompida durante a resposta. Tente novamente.");
+        }
+        return;
+      }
+
+      // Se a rota respondeu erro HTTP direto (400/401/403/429), exibe a mensagem sem reenviar duplicado
+      if (!res.ok) {
+        const errData = (await res.json().catch(() => ({}))) as { message?: string };
+        setSending(false);
+        setLiveStatus(null);
+        setStreamingContent("");
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
+        setDraft(clean);
+        setErrorMsg(errData.message ?? "Não foi possível obter resposta do Assistente IA.");
+        return;
+      }
+    } catch {
+      if (handledViaStream) {
+        setSending(false);
+        setLiveStatus(null);
+        setStreamingContent("");
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
+        setDraft(clean);
+        setErrorMsg("Tempo limite excedido ou conexão interrompida. Tente novamente.");
+        return;
+      }
+    }
+
+    // Fallback síncrono seguro via Server Action caso o streaming não esteja disponível
     const result = await sendAIChatAction({
       conversationId: activeConversationId || undefined,
       message: clean,
+      tier: "good",
     });
 
     setSending(false);
+    setLiveStatus(null);
+    setStreamingContent("");
 
     if (!result.ok || !result.message) {
-      // Remove optimistic message and restore draft so the user never loses text
       setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
       setDraft(clean);
       setErrorMsg(result.error ?? "Não foi possível obter resposta do Assistente IA.");
       return;
     }
 
-    const nextConvId = result.conversationId || activeConversationId;
-    setMessages((prev) => [...prev, result.message!]);
-    if (result.planKey) {
-      setPlanKey(result.planKey);
-    }
-    if (result.creditNotice) {
-      setCreditNotice(result.creditNotice);
-    }
-
-    if (nextConvId && nextConvId !== activeConversationId) {
-      setActiveConversationId(nextConvId);
-      const previewTitle = clean.length > 72 ? `${clean.slice(0, 72)}…` : clean;
-      setConversations((prev) => [
-        { id: nextConvId, title: previewTitle, updatedAt: result.message!.createdAt },
-        ...prev.filter((c) => c.id !== nextConvId),
-      ]);
-      router.replace(`/admin/assistant?c=${encodeURIComponent(nextConvId)}`, { scroll: false });
-    } else if (nextConvId) {
-      setConversations((prev) => {
-        const existing = prev.find((c) => c.id === nextConvId);
-        if (!existing) return prev;
-        return [
-          { ...existing, updatedAt: result.message!.createdAt },
-          ...prev.filter((c) => c.id !== nextConvId),
-        ];
-      });
-    }
+    applyFinalAssistantReply(clean, result.message, result.conversationId, result.creditNotice);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -818,27 +955,6 @@ export function AssistantView({
                     <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
                       Assistente IA & Relatórios
                     </h1>
-                    {isMaster && hasOpenrouterToken && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold",
-                          planKey === "premium"
-                            ? "bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300"
-                            : planKey === "standard"
-                              ? "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300"
-                              : "bg-emerald-100 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-300",
-                        )}
-                      >
-                        {planKey === "premium" ? (
-                          <Crown className="size-3" aria-hidden="true" />
-                        ) : planKey === "standard" ? (
-                          <Zap className="size-3" aria-hidden="true" />
-                        ) : (
-                          <Sparkles className="size-3" aria-hidden="true" />
-                        )}
-                        <span>IA {formatPlanLabel(planKey)}</span>
-                      </span>
-                    )}
                   </div>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs text-slate-600 dark:text-slate-400">
                     <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200">
@@ -1019,6 +1135,8 @@ export function AssistantView({
                       const requested = detectRequestedExport(prevUserMsg);
                       const hasTable = /\|.*\|/.test(msg.content);
                       const showFooterExport = requested.excel || requested.pdf || hasTable;
+                      const isLatestAssistant = msgIdx === messages.length - 1 && !sending;
+                      const telemetry = formatModelTelemetry(msg.modelUsed, msg.latencyMs);
 
                       return (
                         <article
@@ -1026,7 +1144,7 @@ export function AssistantView({
                           className="rounded-[24px] border border-slate-200/90 dark:border-white/12 bg-slate-50/70 dark:bg-slate-800/45 p-4 sm:p-6 shadow-2xs space-y-4"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/70 dark:border-white/10 pb-3">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="flex size-7 items-center justify-center rounded-lg bg-[#3B68F7]/12 text-[#3B68F7] dark:text-blue-300">
                                 <FileText className="size-4" aria-hidden="true" />
                               </span>
@@ -1034,7 +1152,7 @@ export function AssistantView({
                                 Assistente Tercerize
                               </span>
                               <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-                                · {msg.createdAt}
+                                {msg.createdAt}
                               </span>
                             </div>
 
@@ -1102,6 +1220,40 @@ export function AssistantView({
 
                           <MarkdownReport content={msg.content} />
 
+                          {isLatestAssistant && msg.quickReplies && msg.quickReplies.length > 0 && (
+                            <div className="pt-2 flex flex-wrap items-center gap-2">
+                              {msg.quickReplies.map((opt) => (
+                                <button
+                                  key={opt.label}
+                                  type="button"
+                                  onClick={() => void submitPrompt(opt.value)}
+                                  className="min-h-10 inline-flex items-center gap-1.5 rounded-full border border-blue-200 dark:border-blue-500/40 bg-white dark:bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-[#3B68F7] dark:text-blue-300 hover:bg-[#3B68F7] hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                                >
+                                  <Sparkles className="size-3.5" aria-hidden="true" />
+                                  <span>{opt.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {msg.citations && msg.citations.length > 0 && (
+                            <div className="pt-2 border-t border-slate-200/60 dark:border-white/10 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1">
+                                Referências:
+                              </span>
+                              {msg.citations.slice(0, 10).map((cit) => (
+                                <Link
+                                  key={`${cit.module}-${cit.code}`}
+                                  href={cit.href}
+                                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-white/15 bg-white dark:bg-slate-900 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors"
+                                >
+                                  <span>{cit.code}</span>
+                                  <ArrowUpRight className="size-3 opacity-70" aria-hidden="true" />
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+
                           {showFooterExport && (
                             <div className="pt-3 border-t border-slate-200/70 dark:border-white/10 flex flex-wrap items-center justify-between gap-2.5">
                               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -1146,8 +1298,29 @@ export function AssistantView({
                                   )}
                                   <span>Baixar PDF (.pdf)</span>
                                 </button>
+                                </div>
                               </div>
-                            </div>
+                            )}
+
+                          {telemetry && (
+                            <footer className="pt-2.5 border-t border-slate-200/60 dark:border-white/10 flex flex-wrap items-center justify-end gap-3 text-[11px] text-slate-600 dark:text-slate-400">
+                              <span className="inline-flex items-center gap-1.5 font-mono min-w-0 truncate">
+                                <Cpu className="size-3.5 shrink-0 opacity-75" aria-hidden="true" />
+                                <span className="truncate">{telemetry.model}</span>
+                              </span>
+                              {telemetry.duration && (
+                                <span className="inline-flex items-center gap-1 font-mono tabular-nums shrink-0">
+                                  <Clock className="size-3.5 shrink-0 opacity-75" aria-hidden="true" />
+                                  <span>{telemetry.duration}</span>
+                                </span>
+                              )}
+                              {(msg.cacheStatus === "HIT" || msg.cacheStatus === "COALESCED") && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/60 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0">
+                                  <Zap className="size-3 shrink-0" aria-hidden="true" />
+                                  <span>cache</span>
+                                </span>
+                              )}
+                            </footer>
                           )}
                         </article>
                       );
@@ -1161,13 +1334,19 @@ export function AssistantView({
                       >
                         <div className="flex items-center gap-2.5 text-xs font-bold text-[#3B68F7] dark:text-blue-300">
                           <Loader2 className="size-4 animate-spin shrink-0" aria-hidden="true" />
-                          <span>{LOADING_PHRASES[loadingPhraseIdx]}</span>
+                          <span>{liveStatus || LOADING_PHRASES[loadingPhraseIdx]}</span>
                         </div>
-                        <div className="space-y-2">
-                          <div className="h-3 w-3/4 rounded-full bg-blue-200/60 dark:bg-blue-900/50 animate-pulse" />
-                          <div className="h-3 w-full rounded-full bg-blue-200/50 dark:bg-blue-900/40 animate-pulse" />
-                          <div className="h-3 w-2/3 rounded-full bg-blue-200/40 dark:bg-blue-900/30 animate-pulse" />
-                        </div>
+                        {streamingContent ? (
+                          <div className="pt-1">
+                            <MarkdownReport content={streamingContent} />
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="h-3 w-3/4 rounded-full bg-blue-200/60 dark:bg-blue-900/50 animate-pulse" />
+                            <div className="h-3 w-full rounded-full bg-blue-200/50 dark:bg-blue-900/40 animate-pulse" />
+                            <div className="h-3 w-2/3 rounded-full bg-blue-200/40 dark:bg-blue-900/30 animate-pulse" />
+                          </div>
+                        )}
                       </div>
                     )}
                     <div ref={endRef} />

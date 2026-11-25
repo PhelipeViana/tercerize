@@ -60,7 +60,6 @@ func (h *Handlers) CreatePartnerCompany(w http.ResponseWriter, r *http.Request) 
 		OwnerName             string          `json:"ownerName"`
 		OwnerEmail            string          `json:"ownerEmail"`
 		OpenRouterToken       string          `json:"openrouterToken"`
-		AIPlanKey             string          `json:"aiPlanKey"`
 		AIMonthlyMessageLimit int             `json:"aiMonthlyMessageLimit"`
 		PartnerMaxCompanies   int             `json:"partnerMaxCompanies"`
 		PartnerNotes          string          `json:"partnerNotes"`
@@ -140,14 +139,14 @@ func (h *Handlers) CreatePartnerCompany(w http.ResponseWriter, r *http.Request) 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO tenants (
 		   name, cnpj, owner_name, owner_email, owner_user_id, active,
-		   openrouter_token_enc, openrouter_token_hint, ai_plan_key, ai_monthly_message_limit,
+		   openrouter_token_enc, openrouter_token_hint, ai_monthly_message_limit,
 		   is_partner, partner_features, partner_max_companies, partner_notes, partner_enabled_at,
 		   created_by_user_id
 		 )
-		 VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, true, $10::jsonb, $11, $12, now(), $13)
+		 VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, true, $9::jsonb, $10, $11, now(), $12)
 		 RETURNING id`,
 		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID,
-		encToken, tokenHint, normalizeAIPlanKey(in.AIPlanKey), monthlyLimit,
+		encToken, tokenHint, monthlyLimit,
 		string(featuresJSON), maxCompanies, strings.TrimSpace(in.PartnerNotes), sess.User.ID,
 	).Scan(&tenantID)
 	if err != nil {

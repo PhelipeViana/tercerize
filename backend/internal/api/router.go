@@ -19,7 +19,7 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(90 * time.Second))
+	r.Use(middleware.Timeout(120 * time.Second))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -90,15 +90,15 @@ func New(pool *pgxpool.Pool, authHandlers *auth.Handlers, opHandlers *operations
 			r.Post("/financial-entries", opHandlers.CreateFinancialEntry)
 			r.Post("/financial-entries/reconcile", opHandlers.ReconcileFinancialEntry)
 
-			// Assistente IA & Relatórios (OpenRouter por cliente + planos Free/Padrão/Premium Master)
-			r.Get("/ai/settings", aiHandlers.GetSettings)
-			r.Post("/ai/settings", aiHandlers.UpdateSettings)
-			r.Get("/ai/plans", aiHandlers.GetPlans)
-			r.Post("/ai/plans", aiHandlers.UpdatePlan)
+			// Assistente IA & Relatórios (roteamento interno de modelos + busca híbrida + Streaming SSE)
+			r.Get("/ai/observability", aiHandlers.GetObservability)
+			r.Post("/ai/knowledge/reindex", aiHandlers.ReindexKnowledge)
+			r.Post("/ai/cooldowns/clear", aiHandlers.ClearModelCooldowns)
 			r.Get("/ai/conversations", aiHandlers.ListConversations)
 			r.Delete("/ai/conversations/{id}", aiHandlers.DeleteConversation)
 			r.Post("/ai/conversations/delete", aiHandlers.DeleteConversation)
 			r.Post("/ai/chat", aiHandlers.Chat)
+			r.Post("/ai/chat/stream", aiHandlers.ChatStream)
 		})
 	})
 

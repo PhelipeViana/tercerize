@@ -21,6 +21,7 @@ interface ModalProps {
   description?: string;
   size?: ModalSize;
   closeOnBackdrop?: boolean;
+  busy?: boolean;
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -35,6 +36,7 @@ export function Modal({
   description,
   size = "md",
   closeOnBackdrop = true,
+  busy = false,
   children,
   footer,
 }: ModalProps) {
@@ -68,6 +70,7 @@ export function Modal({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (busy) return;
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -98,7 +101,7 @@ export function Modal({
       document.body.style.overflow = prevOverflow;
       previousFocusRef.current?.focus();
     };
-  }, [open]);
+  }, [open, busy]);
 
   if (!open || typeof document === "undefined") {
     return null;
@@ -112,7 +115,7 @@ export function Modal({
       {/* Backdrop */}
       <div
         aria-hidden="true"
-        onClick={closeOnBackdrop ? onClose : undefined}
+        onClick={closeOnBackdrop && !busy ? onClose : undefined}
         className="fixed inset-0 bg-slate-950/55 backdrop-blur-xs transition-opacity duration-150 motion-reduce:transition-none"
       />
 
@@ -150,8 +153,9 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label="Fechar janela"
-            className="min-h-11 min-w-11 -mr-2 -mt-1 inline-flex shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+            className="min-h-11 min-w-11 -mr-2 -mt-1 inline-flex shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-colors cursor-pointer disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
           >
             <X className="size-5" aria-hidden="true" />
           </button>

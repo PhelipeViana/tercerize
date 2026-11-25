@@ -1,13 +1,15 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
   Building2,
   CheckCircle2,
   Clock,
-  Crown,
+  Cpu,
+  Database,
   ExternalLink,
   Eye,
   EyeOff,
@@ -18,6 +20,7 @@ import {
   Plus,
   Power,
   PowerOff,
+  RefreshCw,
   Save,
   Search,
   Send,
@@ -25,9 +28,8 @@ import {
   Sparkles,
   UserCheck,
   Users,
-  Zap,
 } from "lucide-react";
-import { updateAIPlanStateAction } from "@/app/actions/ai";
+import { clearAICooldownsAction, reindexTenantKnowledgeAction } from "@/app/actions/ai";
 import {
   createCompanyStateAction,
   resendCompanyOwnerLinkAction,
@@ -36,44 +38,15 @@ import {
   updateCompanyStateAction,
 } from "@/app/actions/auth";
 import { ConfirmModal, Modal } from "@/components/ui/modal";
-import type { AIPlanRow, AIPlansDashboardData } from "@/lib/ai/repository";
-import type { AIPlanKey } from "@/lib/auth/repository";
+import type { AIObservabilityDashboardData } from "@/lib/ai/repository";
 import type { CompanyRow } from "@/lib/operations/repository";
 import { formatCNPJ } from "@/lib/utils/cnpj";
 
 interface Props {
   companies: CompanyRow[];
-  aiDashboard: AIPlansDashboardData;
+  aiDashboard: AIObservabilityDashboardData;
   initialPartnerFilter?: string;
 }
-
-const PLAN_META: Record<
-  AIPlanKey,
-  {
-    label: string;
-    shortDesc: string;
-    badgeClass: string;
-  }
-> = {
-  free: {
-    label: "Free",
-    shortDesc: "Default · Gratuito (Nemotron)",
-    badgeClass:
-      "bg-emerald-100 dark:bg-emerald-950/75 text-emerald-700 dark:text-emerald-300",
-  },
-  standard: {
-    label: "Padrão",
-    shortDesc: "Pago econômico · Rápido",
-    badgeClass:
-      "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300",
-  },
-  premium: {
-    label: "Premium",
-    shortDesc: "Pago topo · Máxima análise",
-    badgeClass:
-      "bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300",
-  },
-};
 
 function formatCompactTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`;
@@ -81,108 +54,40 @@ function formatCompactTokens(tokens: number): string {
   return `${tokens} tokens`;
 }
 
-function planDisplayName(key: string): string {
-  if (key === "premium") return "Premium";
-  if (key === "standard") return "Padrão";
-  return "Free";
-}
-
-function AIPlanBadge({ planKey }: { planKey: AIPlanKey }) {
-  const meta = PLAN_META[planKey] ?? PLAN_META.free;
-  const Icon = planKey === "premium" ? Crown : planKey === "standard" ? Zap : Sparkles;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${meta.badgeClass}`}
-    >
-      <Icon className="size-3" aria-hidden="true" />
-      <span>IA {meta.label}</span>
-    </span>
-  );
-}
-
-function AIPlanSelector({
-  value,
-  onChange,
+function AIMonthlyLimitField({
   monthlyLimit,
   onMonthlyLimitChange,
   idPrefix,
 }: {
-  value: AIPlanKey;
-  onChange: (key: AIPlanKey) => void;
   monthlyLimit: string;
   onMonthlyLimitChange: (v: string) => void;
   idPrefix: string;
 }) {
   return (
-    <div className="space-y-3 pt-1">
-      <input type="hidden" name="aiPlanKey" value={value} />
-      <div className="space-y-1.5">
-        <span className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Nível de uso e consumo de IA
-        </span>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {(["free", "standard", "premium"] as const).map((key) => {
-            const meta = PLAN_META[key];
-            const selected = value === key;
-            const Icon = key === "premium" ? Crown : key === "standard" ? Zap : Sparkles;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => onChange(key)}
-                aria-pressed={selected}
-                className={`min-h-11 rounded-2xl border p-3 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7] ${
-                  selected
-                    ? "border-[#3B68F7] bg-blue-50/80 dark:bg-blue-950/50"
-                    : "border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-white/20"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1.5">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
-                    <Icon className="size-3.5 text-[#3B68F7] dark:text-blue-400" aria-hidden="true" />
-                    {meta.label}
-                  </span>
-                  {key === "free" && (
-                    <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                      Default
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                  {meta.shortDesc}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          Nos planos pagos (Padrão/Premium), se o crédito OpenRouter acabar (402), o sistema avisa e muda
-          automaticamente a empresa para <strong>Free</strong>.
-        </p>
+    <div className="space-y-1.5 pt-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <label
+          htmlFor={`${idPrefix}-monthly-limit`}
+          className="block text-xs font-semibold text-slate-700 dark:text-slate-200"
+        >
+          Limite mensal de respostas IA (opcional)
+        </label>
+        <span className="text-[11px] text-slate-500 dark:text-slate-400">0 = sem teto mensal</span>
       </div>
-
-      <div className="space-y-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <label
-            htmlFor={`${idPrefix}-monthly-limit`}
-            className="block text-xs font-semibold text-slate-700 dark:text-slate-200"
-          >
-            Limite mensal de respostas IA (opcional)
-          </label>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">0 = sem teto mensal</span>
-        </div>
-        <input
-          id={`${idPrefix}-monthly-limit`}
-          name="aiMonthlyMessageLimit"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={100000}
-          value={monthlyLimit}
-          onChange={(e) => onMonthlyLimitChange(e.target.value)}
-          className="w-full min-h-10 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 px-3.5 py-2 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-        />
-      </div>
+      <input
+        id={`${idPrefix}-monthly-limit`}
+        name="aiMonthlyMessageLimit"
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={100000}
+        value={monthlyLimit}
+        onChange={(e) => onMonthlyLimitChange(e.target.value)}
+        className="w-full min-h-10 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 px-3.5 py-2 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+      />
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+        Os modelos de IA (DeepSeek v4.1 Flash + fallbacks Qwen) são roteados automaticamente pela plataforma.
+      </p>
     </div>
   );
 }
@@ -205,7 +110,6 @@ function CreateCompanyModal({
   const [state, createAction, pending] = useActionState(createCompanyStateAction, undefined);
   const [cnpj, setCnpj] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [aiPlanKey, setAiPlanKey] = useState<AIPlanKey>("free");
   const [monthlyLimit, setMonthlyLimit] = useState("0");
 
   useEffect(() => {
@@ -213,7 +117,6 @@ function CreateCompanyModal({
       setCnpj(state.values.cnpj);
     } else if (state?.ok && state.createdName) {
       setCnpj("");
-      setAiPlanKey("free");
       setMonthlyLimit("0");
       onCreated({
         text: state.emailSent
@@ -379,9 +282,7 @@ function CreateCompanyModal({
             </div>
           </div>
 
-          <AIPlanSelector
-            value={aiPlanKey}
-            onChange={setAiPlanKey}
+          <AIMonthlyLimitField
             monthlyLimit={monthlyLimit}
             onMonthlyLimitChange={setMonthlyLimit}
             idPrefix="create-comp"
@@ -438,7 +339,6 @@ function EditCompanyModal({
   const [ownerEmail, setOwnerEmail] = useState(company?.ownerEmail ?? "");
   const [active, setActive] = useState(company?.active ? "true" : "false");
   const [showToken, setShowToken] = useState(false);
-  const [aiPlanKey, setAiPlanKey] = useState<AIPlanKey>(company?.aiPlanKey ?? "free");
   const [monthlyLimit, setMonthlyLimit] = useState(String(company?.aiMonthlyMessageLimit ?? 0));
 
   useEffect(() => {
@@ -448,7 +348,6 @@ function EditCompanyModal({
       setOwnerName(company.ownerName);
       setOwnerEmail(company.ownerEmail);
       setActive(company.active ? "true" : "false");
-      setAiPlanKey(company.aiPlanKey ?? "free");
       setMonthlyLimit(String(company.aiMonthlyMessageLimit ?? 0));
     }
   }, [company]);
@@ -645,14 +544,11 @@ function EditCompanyModal({
             <p className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/50 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
               <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
               <span>
-                Créditos OpenRouter esgotados no plano {planDisplayName(company.aiCreditDepletedFrom)} — alterado
-                automaticamente para Free. Ao recarregar e selecionar Padrão ou Premium, este alerta é limpo.
+                Créditos OpenRouter esgotados — o Assistente está operando em contingência gratuita até a recarga ou atualização do token.
               </span>
             </p>
           )}
-          <AIPlanSelector
-            value={aiPlanKey}
-            onChange={setAiPlanKey}
+          <AIMonthlyLimitField
             monthlyLimit={monthlyLimit}
             onMonthlyLimitChange={setMonthlyLimit}
             idPrefix="edit-comp"
@@ -880,77 +776,68 @@ function CompanyDetailsModal({
   );
 }
 
-function AIPlansModal({
+function AIObservabilityModal({
   open,
   onClose,
   aiDashboard,
-  onSaved,
+  onNotice,
 }: {
   open: boolean;
   onClose: () => void;
-  aiDashboard: AIPlansDashboardData;
-  onSaved: (notice: { text: string }) => void;
+  aiDashboard: AIObservabilityDashboardData;
+  onNotice: (notice: { text: string; warning?: string }) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<AIPlanKey | "usage">("free");
-  const [state, action, pending] = useActionState(updateAIPlanStateAction, undefined);
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"usage" | "knowledge" | "models">("usage");
+  const [reindexingTenantId, setReindexingTenantId] = useState<string | null>(null);
+  const [clearingCooldowns, setClearingCooldowns] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const selectedPlan: AIPlanRow | undefined = useMemo(
-    () =>
-      activeTab === "usage"
-        ? undefined
-        : aiDashboard.plans.find((p) => p.key === activeTab) ?? aiDashboard.plans[0],
-    [activeTab, aiDashboard.plans],
-  );
-
-  const [modelsText, setModelsText] = useState("");
-  const [timeoutSec, setTimeoutSec] = useState("15");
-  const [cooldownSec, setCooldownSec] = useState("180");
-  const [maxTokens, setMaxTokens] = useState("2400");
-  const [rateLimit, setRateLimit] = useState("30");
-
-  useEffect(() => {
-    if (open && selectedPlan) {
-      setModelsText(selectedPlan.models.join("\n"));
-      setTimeoutSec(String(selectedPlan.timeoutSeconds));
-      setCooldownSec(String(selectedPlan.cooldownSeconds));
-      setMaxTokens(String(selectedPlan.maxTokens));
-      setRateLimit(String(selectedPlan.rateLimitPerHour));
+  async function handleReindex(tenantId: string, tenantName: string) {
+    setLocalError(null);
+    setReindexingTenantId(tenantId);
+    const res = await reindexTenantKnowledgeAction(tenantId);
+    setReindexingTenantId(null);
+    if (!res.ok) {
+      setLocalError(res.error ?? "Erro ao reindexar.");
+      return;
     }
-  }, [open, selectedPlan]);
+    onNotice({ text: `${tenantName}: ${res.message ?? "Reindexação iniciada."}` });
+    router.refresh();
+  }
 
-  useEffect(() => {
-    if (state?.ok && state.message) {
-      onSaved({ text: state.message });
-      onClose();
+  async function handleClearCooldowns() {
+    setLocalError(null);
+    setClearingCooldowns(true);
+    const res = await clearAICooldownsAction();
+    setClearingCooldowns(false);
+    if (!res.ok) {
+      setLocalError(res.error ?? "Erro ao limpar cooldowns.");
+      return;
     }
-  }, [state, onClose, onSaved]);
-
-  const tabStats = useMemo(() => {
-    if (activeTab === "usage") return [];
-    return aiDashboard.stats.filter((st) => st.planKey === activeTab);
-  }, [activeTab, aiDashboard.stats]);
+    onNotice({ text: res.message ?? "Cooldowns limpos." });
+    router.refresh();
+  }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Planos e Modelos de IA (OpenRouter)"
-      description="Gerencie os 3 níveis (Free, Padrão e Premium), cadeias de fallback e o consumo mensal de cada empresa."
+      title="Observabilidade e Indexação de IA"
+      description="Consumo mensal, saúde do índice híbrido (pgvector + FTS + pg_trgm) e política interna de modelos."
       size="lg"
     >
       <div className="space-y-5">
-        {/* 4 Abas */}
         <div
           role="tablist"
-          aria-label="Níveis de planos de IA e consumo"
+          aria-label="Seções de observabilidade de IA"
           className="inline-flex flex-wrap items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-800 p-1"
         >
           {(
             [
-              { key: "free", label: "Free (Default)" },
-              { key: "standard", label: "Padrão (Pago)" },
-              { key: "premium", label: "Premium (Topo)" },
               { key: "usage", label: "Consumo (Mês)" },
+              { key: "knowledge", label: "Saúde da Indexação" },
+              { key: "models", label: "Modelos Internos" },
             ] as const
           ).map((tab) => (
             <button
@@ -970,14 +857,23 @@ function AIPlansModal({
           ))}
         </div>
 
-        {activeTab === "usage" ? (
+        {localError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-3.5 py-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300"
+          >
+            {localError}
+          </p>
+        )}
+
+        {activeTab === "usage" && (
           <div className="space-y-3">
             <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-b border-slate-200/80 dark:border-white/10">
                     <th className="px-4 py-3 font-bold">Empresa</th>
-                    <th className="px-4 py-3 font-bold">Plano atual</th>
+                    <th className="px-4 py-3 font-bold">Status IA</th>
                     <th className="px-4 py-3 font-bold">Respostas (mês)</th>
                     <th className="px-4 py-3 font-bold">Tokens (mês)</th>
                     <th className="px-4 py-3 font-bold">Latência média</th>
@@ -998,10 +894,19 @@ function AIPlansModal({
                           <p className="font-mono text-[11px] text-slate-500">{row.cnpj}</p>
                         </td>
                         <td className="px-4 py-3 space-y-1">
-                          <AIPlanBadge planKey={row.planKey} />
+                          {row.hasToken ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/75 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                              <Sparkles className="size-3" aria-hidden="true" />
+                              <span>IA Ativa</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
+                              Sem token
+                            </span>
+                          )}
                           {row.creditDepleted && (
                             <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                              Sem crédito no {planDisplayName(row.creditDepletedFrom)}
+                              Contingência gratuita (sem saldo)
                             </p>
                           )}
                         </td>
@@ -1025,178 +930,190 @@ function AIPlansModal({
               Tokens contabilizados a partir do retorno real da OpenRouter (prompt + resposta) no mês corrente.
             </p>
           </div>
-        ) : (
-          selectedPlan && (
-            <form key={selectedPlan.key} action={action} className="space-y-4">
-              <input type="hidden" name="key" value={selectedPlan.key} />
+        )}
 
-              <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <p className="text-slate-700 dark:text-slate-200">{selectedPlan.description}</p>
-                <AIPlanBadge planKey={selectedPlan.key} />
-              </div>
-
-              {state?.error && (
-                <p
-                  role="alert"
-                  className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 px-3.5 py-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300"
-                >
-                  {state.error}
-                </p>
-              )}
-
-              <div className="space-y-1.5">
-                <label htmlFor="ai-models-list" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Cadeia ordenada de modelos OpenRouter para o plano {selectedPlan.name} (um slug por linha) *
-                </label>
-                <textarea
-                  id="ai-models-list"
-                  name="models"
-                  rows={5}
-                  spellCheck={false}
-                  required
-                  value={modelsText}
-                  onChange={(e) => setModelsText(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 p-3.5 font-mono text-xs text-slate-900 dark:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
-                />
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Linha 1 = Modelo Primário. As linhas seguintes entram automaticamente como fallback se houver
-                  lentidão ou falha.
-                  {selectedPlan.isPaid &&
-                    " Se o crédito OpenRouter do cliente acabar (402), a empresa é migrada automaticamente para Free com aviso."}
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="space-y-1">
-                  <label htmlFor="ai-timeout" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Timeout (s)
-                  </label>
-                  <input
-                    id="ai-timeout"
-                    name="timeoutSeconds"
-                    type="number"
-                    min={5}
-                    max={60}
-                    value={timeoutSec}
-                    onChange={(e) => setTimeoutSec(e.target.value)}
-                    className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 font-mono text-sm text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label htmlFor="ai-cooldown" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Cooldown (s)
-                  </label>
-                  <input
-                    id="ai-cooldown"
-                    name="cooldownSeconds"
-                    type="number"
-                    min={30}
-                    max={1800}
-                    value={cooldownSec}
-                    onChange={(e) => setCooldownSec(e.target.value)}
-                    className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 font-mono text-sm text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label htmlFor="ai-max-tokens" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Máx. tokens
-                  </label>
-                  <input
-                    id="ai-max-tokens"
-                    name="maxTokens"
-                    type="number"
-                    min={500}
-                    max={8192}
-                    value={maxTokens}
-                    onChange={(e) => setMaxTokens(e.target.value)}
-                    className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 font-mono text-sm text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label htmlFor="ai-rate-limit" className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                    Msgs / hora
-                  </label>
-                  <input
-                    id="ai-rate-limit"
-                    name="rateLimitPerHour"
-                    type="number"
-                    min={5}
-                    max={2000}
-                    value={rateLimit}
-                    onChange={(e) => setRateLimit(e.target.value)}
-                    className="w-full min-h-11 rounded-2xl border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3.5 py-2 font-mono text-sm text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2.5 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-4 py-2.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="clearCooldowns"
-                  defaultChecked
-                  className="size-4 rounded border-slate-300 text-[#3B68F7]"
-                />
-                <span>Limpar cooldowns temporários no Redis ao salvar</span>
-              </label>
-
-              {tabStats.length > 0 && (
-                <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-x-auto">
-                  <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200">
-                    Telemetria real · Plano {selectedPlan.name}
-                  </div>
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/70 dark:border-white/10 text-slate-500">
-                        <th className="px-4 py-2">Modelo</th>
-                        <th className="px-4 py-2">Respostas</th>
-                        <th className="px-4 py-2">Tokens</th>
-                        <th className="px-4 py-2">Latência</th>
-                        <th className="px-4 py-2">Fallbacks</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200/60 dark:divide-white/10 tabular-nums">
-                      {tabStats.map((st) => (
-                        <tr key={`${st.planKey}-${st.model}`}>
-                          <td className="px-4 py-2 font-mono text-[11px] font-semibold text-slate-900 dark:text-white">
-                            {st.model}
-                          </td>
-                          <td className="px-4 py-2">{st.calls}</td>
-                          <td className="px-4 py-2">{formatCompactTokens(st.totalTokens)}</td>
-                          <td className="px-4 py-2">{(st.avgLatencyMs / 1000).toFixed(1)}s</td>
-                          <td className="px-4 py-2">{st.totalFallback}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="min-h-11 rounded-full border border-slate-300 dark:border-white/15 px-5 py-2 text-xs font-semibold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="min-h-11 inline-flex items-center gap-2 pill-gradient px-6 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
-                >
-                  {pending ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        {activeTab === "knowledge" && (
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border-b border-slate-200/80 dark:border-white/10">
+                    <th className="px-4 py-3 font-bold">Empresa</th>
+                    <th className="px-4 py-3 font-bold">Chunks / Vetores</th>
+                    <th className="px-4 py-3 font-bold">Resumos Mensais</th>
+                    <th className="px-4 py-3 font-bold">Fila Outbox</th>
+                    <th className="px-4 py-3 font-bold">Última Sync</th>
+                    <th className="px-4 py-3 font-bold text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/60 dark:divide-white/10 tabular-nums">
+                  {aiDashboard.knowledgeHealth.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-6 text-center text-slate-500 dark:text-slate-400">
+                        Nenhum dado de indexação disponível.
+                      </td>
+                    </tr>
                   ) : (
-                    <Save className="size-4" aria-hidden="true" />
+                    aiDashboard.knowledgeHealth.map((row) => (
+                      <tr key={row.tenantId}>
+                        <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
+                          {row.tenantName}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
+                          <strong>{row.indexedChunks}</strong> chunks ·{" "}
+                          <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                            {row.embeddedChunks} vetores
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
+                          {row.monthlySummaries}
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.pendingOutbox === 0 && row.deadLetterOutbox === 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/70 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                              <CheckCircle2 className="size-3" aria-hidden="true" />
+                              Sincronizado
+                            </span>
+                          ) : (
+                            <div className="space-y-0.5">
+                              {row.pendingOutbox > 0 && (
+                                <p className="text-amber-700 dark:text-amber-300 font-semibold">
+                                  {row.pendingOutbox} pendente(s)
+                                  {row.oldestPendingMinutes > 0 ? ` (${row.oldestPendingMinutes} min)` : ""}
+                                </p>
+                              )}
+                              {row.deadLetterOutbox > 0 && (
+                                <p className="text-rose-700 dark:text-rose-300 font-semibold">
+                                  {row.deadLetterOutbox} pausado(s) (FTS ativo)
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {row.lastIndexedAt}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            disabled={reindexingTenantId === row.tenantId}
+                            onClick={() => void handleReindex(row.tenantId, row.tenantName)}
+                            className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-3 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-[#3B68F7] hover:text-[#3B68F7] transition-colors cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
+                          >
+                            {reindexingTenantId === row.tenantId ? (
+                              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <RefreshCw className="size-3.5" aria-hidden="true" />
+                            )}
+                            <span>Reindexar</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
                   )}
-                  <span>Salvar plano {selectedPlan.name}</span>
-                </button>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <Database className="size-3.5 text-[#3B68F7]" aria-hidden="true" />
+              <span>
+                Motor de busca híbrida: SQL Determinístico + FTS Português (GIN) + Trigram (pg_trgm) + Vetorial (
+                <code className="font-mono">{aiDashboard.embeddingModel}</code> · {aiDashboard.embeddingDimensions}d).
+              </span>
+            </p>
+          </div>
+        )}
+
+        {activeTab === "models" && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-blue-200/70 dark:border-blue-500/20 bg-blue-50/70 dark:bg-blue-950/30 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5 text-slate-700 dark:text-slate-200">
+                <Cpu className="size-4 shrink-0 text-[#3B68F7] mt-0.5" aria-hidden="true" />
+                <span>
+                  A seleção de modelos é <strong>controlada internamente em código</strong> para máxima velocidade,
+                  consistência e menor custo por resposta.
+                </span>
               </div>
-            </form>
-          )
+              <button
+                type="button"
+                disabled={clearingCooldowns}
+                onClick={() => void handleClearCooldowns()}
+                className="min-h-9 inline-flex items-center gap-1.5 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-900 px-3.5 py-1.5 text-[11px] font-bold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {clearingCooldowns ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                )}
+                <span>Limpar cooldowns Redis</span>
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              {aiDashboard.profiles.map((prof) => (
+                <div
+                  key={prof.key}
+                  className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-slate-800/40 p-4 space-y-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">{prof.label}</p>
+                    <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                      TTFT {prof.ttftTimeoutSeconds}s · Total {prof.totalTimeoutSeconds}s · {prof.maxTokens} tok
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">{prof.description}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {prof.models.map((slug, idx) => (
+                      <span
+                        key={slug}
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-mono text-[11px] font-semibold ${
+                          idx === 0
+                            ? "bg-blue-100 dark:bg-blue-950/80 text-[#3B68F7] dark:text-blue-300"
+                            : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {idx + 1}. {slug}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {aiDashboard.stats.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-x-auto">
+                <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200">
+                  Telemetria histórica por modelo
+                </div>
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200/70 dark:border-white/10 text-slate-500">
+                      <th className="px-4 py-2">Modelo</th>
+                      <th className="px-4 py-2">Perfil</th>
+                      <th className="px-4 py-2">Respostas</th>
+                      <th className="px-4 py-2">Tokens</th>
+                      <th className="px-4 py-2">Latência</th>
+                      <th className="px-4 py-2">Fallbacks</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/60 dark:divide-white/10 tabular-nums">
+                    {aiDashboard.stats.map((st) => (
+                      <tr key={`${st.profileKey}-${st.model}`}>
+                        <td className="px-4 py-2 font-mono text-[11px] font-semibold text-slate-900 dark:text-white">
+                          {st.model}
+                        </td>
+                        <td className="px-4 py-2 font-mono text-[11px] text-slate-500">{st.profileKey}</td>
+                        <td className="px-4 py-2">{st.calls}</td>
+                        <td className="px-4 py-2">{formatCompactTokens(st.totalTokens)}</td>
+                        <td className="px-4 py-2">{(st.avgLatencyMs / 1000).toFixed(1)}s</td>
+                        <td className="px-4 py-2">{st.totalFallback}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </Modal>
@@ -1274,7 +1191,7 @@ export function CompaniesView({ companies, aiDashboard, initialPartnerFilter = "
             className="min-h-11 inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-white/15 bg-white dark:bg-slate-800 px-4 py-2.5 text-xs sm:text-sm font-bold text-slate-800 dark:text-white hover:border-[#3B68F7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B68F7]"
           >
             <Gauge className="size-4 text-[#3B68F7]" aria-hidden="true" />
-            <span>Planos e Modelos de IA</span>
+            <span>Observabilidade de IA</span>
           </button>
 
           <button
@@ -1588,11 +1505,14 @@ export function CompaniesView({ companies, aiDashboard, initialPartnerFilter = "
                           )}
                           {c.hasOpenrouterToken ? (
                             <div className="space-y-1">
-                              <AIPlanBadge planKey={c.aiPlanKey} />
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-950/80 px-2.5 py-0.5 text-[11px] font-bold text-[#3B68F7] dark:text-blue-300">
+                                <Sparkles className="size-3" aria-hidden="true" />
+                                <span>IA Ativa</span>
+                              </span>
                               {c.aiCreditDepleted && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/75 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:text-amber-200">
                                   <AlertTriangle className="size-3" aria-hidden="true" />
-                                  Crédito esgotado ({planDisplayName(c.aiCreditDepletedFrom)})
+                                  Sem saldo (contingência)
                                 </span>
                               )}
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
@@ -1677,11 +1597,11 @@ export function CompaniesView({ companies, aiDashboard, initialPartnerFilter = "
       </section>
 
       {/* Modais inteligentes */}
-      <AIPlansModal
+      <AIObservabilityModal
         open={modelsOpen}
         onClose={() => setModelsOpen(false)}
         aiDashboard={aiDashboard}
-        onSaved={setNotice}
+        onNotice={setNotice}
       />
 
       <CreateCompanyModal

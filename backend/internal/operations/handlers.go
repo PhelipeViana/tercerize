@@ -127,7 +127,6 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		OwnerName             string `json:"ownerName"`
 		OwnerEmail            string `json:"ownerEmail"`
 		OpenRouterToken       string `json:"openrouterToken"`
-		AIPlanKey             string `json:"aiPlanKey"`
 		AIMonthlyMessageLimit int    `json:"aiMonthlyMessageLimit"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
@@ -205,7 +204,6 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 		tokenHint = secretbox.MaskHint(rawTokenIn)
 	}
 
-	aiPlanKey := normalizeAIPlanKey(in.AIPlanKey)
 	monthlyLimit := in.AIMonthlyMessageLimit
 	if monthlyLimit < 0 {
 		monthlyLimit = 0
@@ -213,9 +211,9 @@ func (h *Handlers) CreateCompany(w http.ResponseWriter, r *http.Request) {
 
 	var tenantID string
 	err = tx.QueryRow(ctx,
-		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active, openrouter_token_enc, openrouter_token_hint, ai_plan_key, ai_monthly_message_limit)
-		 VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9) RETURNING id`,
-		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID, encToken, tokenHint, aiPlanKey, monthlyLimit).Scan(&tenantID)
+		`INSERT INTO tenants (name, cnpj, owner_name, owner_email, owner_user_id, active, openrouter_token_enc, openrouter_token_hint, ai_monthly_message_limit)
+		 VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8) RETURNING id`,
+		name, formattedCNPJ, ownerName, ownerEmail, ownerUserID, encToken, tokenHint, monthlyLimit).Scan(&tenantID)
 	if err != nil {
 		h.log.Error("criar empresa", "err", err)
 		httpx.Message(w, http.StatusInternalServerError, "Erro ao cadastrar empresa.")
@@ -288,7 +286,6 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 		ResendLink            bool   `json:"resendLink"`
 		OpenRouterToken       string `json:"openrouterToken"`
 		ClearOpenRouterToken  bool   `json:"clearOpenrouterToken"`
-		AIPlanKey             string `json:"aiPlanKey"`
 		AIMonthlyMessageLimit *int   `json:"aiMonthlyMessageLimit"`
 	}
 	if err := httpx.Read(r, &in); err != nil {
@@ -433,24 +430,7 @@ func (h *Handlers) UpdateCompany(w http.ResponseWriter, r *http.Request) {
 			enc, secretbox.MaskHint(rawToken), tenantID)
 	}
 
-	// Atualiza plano de IA (Free / Padrão / Premium) e limite mensal opcional quando informado pelo Master
-	if strings.TrimSpace(in.AIPlanKey) != "" {
-		newPlanKey := normalizeAIPlanKey(in.AIPlanKey)
-		if newPlanKey != "free" {
-			// Ao reativar plano pago após recarga, limpa o alerta de crédito esgotado
-			_, _ = tx.Exec(ctx,
-				`UPDATE tenants
-				    SET ai_plan_key = $1,
-				        ai_credit_depleted_at = NULL,
-				        ai_credit_depleted_from = ''
-				  WHERE id = $2`,
-				newPlanKey, tenantID)
-		} else {
-			_, _ = tx.Exec(ctx,
-				`UPDATE tenants SET ai_plan_key = 'free' WHERE id = $1`,
-				tenantID)
-		}
-	}
+	// Atualiza limite mensal opcional de mensagens IA quando informado pelo Master
 	if in.AIMonthlyMessageLimit != nil {
 		ml := *in.AIMonthlyMessageLimit
 		if ml < 0 {

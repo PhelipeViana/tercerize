@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,23 +12,20 @@ import (
 )
 
 type TenantSnapshot struct {
-	GeneratedAt    string         `json:"geradoEm"`
-	Company        CompanyInfo    `json:"empresa"`
-	AllowedModules []string       `json:"modulosPermitidos"`
-	Clients        any            `json:"clientes,omitempty"`
-	Contracts      any            `json:"contratos,omitempty"`
-	ServiceOrders  any            `json:"ordensServico,omitempty"`
-	Employees      any            `json:"colaboradores,omitempty"`
-	EPIs           any            `json:"epis,omitempty"`
-	Inventory      any            `json:"almoxarifado,omitempty"`
-	Finance        any            `json:"financeiro,omitempty"`
+	GeneratedAt    string      `json:"geradoEm"`
+	Company        CompanyInfo `json:"empresa"`
+	AllowedModules []string    `json:"modulosPermitidos"`
+	Clients        any         `json:"clientes,omitempty"`
+	Contracts      any         `json:"contratos,omitempty"`
+	ServiceOrders  any         `json:"ordensServico,omitempty"`
+	Employees      any         `json:"colaboradores,omitempty"`
+	EPIs           any         `json:"epis,omitempty"`
+	Inventory      any         `json:"almoxarifado,omitempty"`
+	Finance        any         `json:"financeiro,omitempty"`
 }
 
 type CompanyInfo struct {
-	Name       string `json:"razaoSocial"`
-	CNPJ       string `json:"cnpj"`
-	OwnerName  string `json:"responsavel"`
-	OwnerEmail string `json:"emailResponsavel"`
+	Name string `json:"razaoSocial"`
 }
 
 // BuildTenantSnapshot coleta SOMENTE os dados da empresa instanciada (WHERE tenant_id = sess.Tenant.ID)
@@ -40,10 +38,7 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 	snap := &TenantSnapshot{
 		GeneratedAt: time.Now().In(loc).Format("02/01/2006 15:04"),
 		Company: CompanyInfo{
-			Name:       sess.Tenant.Name,
-			CNPJ:       sess.Tenant.CNPJ,
-			OwnerName:  sess.Tenant.OwnerName,
-			OwnerEmail: sess.Tenant.OwnerEmail,
+			Name: sess.Tenant.Name,
 		},
 		AllowedModules: []string{},
 	}
@@ -53,23 +48,27 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 	if sess.HasPermission("contracts:view") {
 		snap.AllowedModules = append(snap.AllowedModules, "Clientes e contratos")
 		type clientItem struct {
-			Name  string `json:"nome"`
-			CNPJ  string `json:"cnpj"`
-			Phone string `json:"telefone"`
-			Email string `json:"email"`
+			Name string `json:"nome"`
 		}
 		var clients []clientItem
-		if rows, err := pool.Query(ctx,
-			`SELECT name, cnpj, COALESCE(phone, ''), COALESCE(email, contact)
-			   FROM clients WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 80`, tid); err == nil {
-			for rows.Next() {
-				var c clientItem
-				if rows.Scan(&c.Name, &c.CNPJ, &c.Phone, &c.Email) == nil {
-					clients = append(clients, c)
-				}
-			}
-			rows.Close()
+		rows, err := pool.Query(ctx,
+			`SELECT name FROM clients WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 80`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar clientes: %w", err)
 		}
+		for rows.Next() {
+			var c clientItem
+			if err := rows.Scan(&c.Name); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler clientes: %w", err)
+			}
+			clients = append(clients, c)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer clientes: %w", err)
+		}
+		rows.Close()
 		snap.Clients = map[string]any{"total": len(clients), "lista": clients}
 
 		type contractItem struct {
@@ -84,29 +83,37 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		var contracts []contractItem
 		var activeCount int
 		var monthlySum float64
-		if rows, err := pool.Query(ctx,
+		rows, err = pool.Query(ctx,
 			`SELECT c.code, cl.name, c.object, c.workstation, c.duration_months, c.monthly_value::float8, c.status
 			   FROM contracts c
 			   JOIN clients cl ON cl.id = c.client_id
 			  WHERE c.tenant_id = $1
-			  ORDER BY c.created_at DESC LIMIT 80`, tid); err == nil {
-			for rows.Next() {
-				var ct contractItem
-				if rows.Scan(&ct.Code, &ct.ClientName, &ct.Object, &ct.Workstation, &ct.DurationMonths, &ct.MonthlyValue, &ct.Status) == nil {
-					contracts = append(contracts, ct)
-					if ct.Status == "Ativo" {
-						activeCount++
-						monthlySum += ct.MonthlyValue
-					}
-				}
-			}
-			rows.Close()
+			  ORDER BY c.created_at DESC LIMIT 80`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar contratos: %w", err)
 		}
+		for rows.Next() {
+			var ct contractItem
+			if err := rows.Scan(&ct.Code, &ct.ClientName, &ct.Object, &ct.Workstation, &ct.DurationMonths, &ct.MonthlyValue, &ct.Status); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler contratos: %w", err)
+			}
+			contracts = append(contracts, ct)
+			if ct.Status == "Ativo" {
+				activeCount++
+				monthlySum += ct.MonthlyValue
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer contratos: %w", err)
+		}
+		rows.Close()
 		snap.Contracts = map[string]any{
-			"total":               len(contracts),
-			"ativos":              activeCount,
-			"receitaMensalAtiva":  monthlySum,
-			"lista":               contracts,
+			"total":              len(contracts),
+			"ativos":             activeCount,
+			"receitaMensalAtiva": monthlySum,
+			"lista":              contracts,
 		}
 	}
 
@@ -126,7 +133,7 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		}
 		var list []osItem
 		counts := map[string]int{"Agendada": 0, "Em Execução": 0, "Concluída": 0, "UrgenteAtiva": 0}
-		if rows, err := pool.Query(ctx,
+		rows, err := pool.Query(ctx,
 			`SELECT o.code, cl.name, COALESCE(ct.code, ''), COALESCE(e.name, 'Não designado'),
 			        o.description, o.priority, o.status,
 			        COALESCE(to_char(o.scheduled_for AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI'), ''),
@@ -136,19 +143,27 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 			   LEFT JOIN contracts ct ON ct.id = o.contract_id
 			   LEFT JOIN employees e ON e.id = o.employee_id
 			  WHERE o.tenant_id = $1
-			  ORDER BY o.created_at DESC LIMIT 80`, tid); err == nil {
-			for rows.Next() {
-				var it osItem
-				if rows.Scan(&it.Code, &it.Client, &it.Contract, &it.Technician, &it.Description, &it.Priority, &it.Status, &it.ScheduledFor, &it.CreatedAt) == nil {
-					list = append(list, it)
-					counts[it.Status]++
-					if it.Priority == "Urgente" && it.Status != "Concluída" {
-						counts["UrgenteAtiva"]++
-					}
-				}
-			}
-			rows.Close()
+			  ORDER BY o.created_at DESC LIMIT 80`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar ordens de serviço: %w", err)
 		}
+		for rows.Next() {
+			var it osItem
+			if err := rows.Scan(&it.Code, &it.Client, &it.Contract, &it.Technician, &it.Description, &it.Priority, &it.Status, &it.ScheduledFor, &it.CreatedAt); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler ordens de serviço: %w", err)
+			}
+			list = append(list, it)
+			counts[it.Status]++
+			if it.Priority == "Urgente" && it.Status != "Concluída" {
+				counts["UrgenteAtiva"]++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer ordens de serviço: %w", err)
+		}
+		rows.Close()
 		snap.ServiceOrders = map[string]any{"resumo": counts, "total": len(list), "lista": list}
 	}
 
@@ -165,24 +180,32 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		}
 		var list []empItem
 		var allocated int
-		if rows, err := pool.Query(ctx,
+		rows, err := pool.Query(ctx,
 			`SELECT e.name, e.role_title, COALESCE(ct.code, 'Reserva técnica'), COALESCE(cl.name, ''), e.schedule, e.status
 			   FROM employees e
 			   LEFT JOIN contracts ct ON ct.id = e.contract_id
 			   LEFT JOIN clients cl ON cl.id = ct.client_id
 			  WHERE e.tenant_id = $1
-			  ORDER BY e.created_at DESC LIMIT 100`, tid); err == nil {
-			for rows.Next() {
-				var it empItem
-				if rows.Scan(&it.Name, &it.Role, &it.Contract, &it.Client, &it.Schedule, &it.Status) == nil {
-					list = append(list, it)
-					if it.Status == "Alocado" {
-						allocated++
-					}
-				}
-			}
-			rows.Close()
+			  ORDER BY e.created_at DESC LIMIT 100`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar colaboradores: %w", err)
 		}
+		for rows.Next() {
+			var it empItem
+			if err := rows.Scan(&it.Name, &it.Role, &it.Contract, &it.Client, &it.Schedule, &it.Status); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler colaboradores: %w", err)
+			}
+			list = append(list, it)
+			if it.Status == "Alocado" {
+				allocated++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer colaboradores: %w", err)
+		}
+		rows.Close()
 		snap.Employees = map[string]any{"total": len(list), "alocados": allocated, "lista": list}
 	}
 
@@ -201,7 +224,7 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		}
 		var list []epiItem
 		var pendingSign, expiringSoon int
-		if rows, err := pool.Query(ctx,
+		rows, err := pool.Query(ctx,
 			`SELECT e.name, d.epi_name, d.ca_number,
 			        to_char(d.delivered_at, 'DD/MM/YYYY'),
 			        to_char(d.expires_at, 'DD/MM/YYYY'),
@@ -210,21 +233,29 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 			   FROM epi_deliveries d
 			   JOIN employees e ON e.id = d.employee_id
 			  WHERE d.tenant_id = $1
-			  ORDER BY d.delivered_at DESC LIMIT 80`, tid); err == nil {
-			for rows.Next() {
-				var it epiItem
-				if rows.Scan(&it.Employee, &it.EPI, &it.CA, &it.DeliveredAt, &it.ExpiresAt, &it.DaysLeft, &it.Signed, &it.Protocol) == nil {
-					list = append(list, it)
-					if !it.Signed {
-						pendingSign++
-					}
-					if it.DaysLeft <= 30 {
-						expiringSoon++
-					}
-				}
-			}
-			rows.Close()
+			  ORDER BY d.delivered_at DESC LIMIT 80`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar entregas de EPI: %w", err)
 		}
+		for rows.Next() {
+			var it epiItem
+			if err := rows.Scan(&it.Employee, &it.EPI, &it.CA, &it.DeliveredAt, &it.ExpiresAt, &it.DaysLeft, &it.Signed, &it.Protocol); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler entregas de EPI: %w", err)
+			}
+			list = append(list, it)
+			if !it.Signed {
+				pendingSign++
+			}
+			if it.DaysLeft <= 30 {
+				expiringSoon++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer entregas de EPI: %w", err)
+		}
+		rows.Close()
 		snap.EPIs = map[string]any{
 			"total":                len(list),
 			"assinaturasPendentes": pendingSign,
@@ -249,22 +280,30 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		var items []invItem
 		var lowCount int
 		var totalValue float64
-		if rows, err := pool.Query(ctx,
+		rows, err := pool.Query(ctx,
 			`SELECT sku, description, category, quantity, unit, unit_value::float8, min_quantity
-			   FROM inventory_items WHERE tenant_id = $1 ORDER BY sku ASC LIMIT 100`, tid); err == nil {
-			for rows.Next() {
-				var it invItem
-				if rows.Scan(&it.SKU, &it.Description, &it.Category, &it.Quantity, &it.Unit, &it.UnitValue, &it.MinQty) == nil {
-					it.LowStock = it.Quantity <= it.MinQty
-					if it.LowStock {
-						lowCount++
-					}
-					totalValue += float64(it.Quantity) * it.UnitValue
-					items = append(items, it)
-				}
-			}
-			rows.Close()
+			   FROM inventory_items WHERE tenant_id = $1 ORDER BY sku ASC LIMIT 100`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar estoque: %w", err)
 		}
+		for rows.Next() {
+			var it invItem
+			if err := rows.Scan(&it.SKU, &it.Description, &it.Category, &it.Quantity, &it.Unit, &it.UnitValue, &it.MinQty); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler estoque: %w", err)
+			}
+			it.LowStock = it.Quantity <= it.MinQty
+			if it.LowStock {
+				lowCount++
+			}
+			totalValue += float64(it.Quantity) * it.UnitValue
+			items = append(items, it)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer estoque: %w", err)
+		}
+		rows.Close()
 
 		type movItem struct {
 			Date     string `json:"data"`
@@ -277,7 +316,7 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 			OSCode   string `json:"os"`
 		}
 		var movs []movItem
-		if rows, err := pool.Query(ctx,
+		rows, err = pool.Query(ctx,
 			`SELECT to_char(m.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI'),
 			        i.sku, m.movement_type, m.previous_quantity, m.quantity, m.new_quantity,
 			        COALESCE(e.name, 'Almoxarifado'), COALESCE(o.code, '')
@@ -286,20 +325,28 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 			   LEFT JOIN employees e ON e.id = m.employee_id
 			   LEFT JOIN service_orders o ON o.id = m.service_order_id
 			  WHERE m.tenant_id = $1
-			  ORDER BY m.created_at DESC LIMIT 30`, tid); err == nil {
-			for rows.Next() {
-				var mv movItem
-				if rows.Scan(&mv.Date, &mv.SKU, &mv.Type, &mv.PrevQty, &mv.Qty, &mv.NewQty, &mv.Employee, &mv.OSCode) == nil {
-					movs = append(movs, mv)
-				}
-			}
-			rows.Close()
+			  ORDER BY m.created_at DESC LIMIT 30`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar movimentações de estoque: %w", err)
 		}
+		for rows.Next() {
+			var mv movItem
+			if err := rows.Scan(&mv.Date, &mv.SKU, &mv.Type, &mv.PrevQty, &mv.Qty, &mv.NewQty, &mv.Employee, &mv.OSCode); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler movimentações de estoque: %w", err)
+			}
+			movs = append(movs, mv)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer movimentações de estoque: %w", err)
+		}
+		rows.Close()
 		snap.Inventory = map[string]any{
-			"totalSkus":           len(items),
-			"itensNivelBaixo":     lowCount,
-			"valorTotalEstoque":   totalValue,
-			"itens":               items,
+			"totalSkus":            len(items),
+			"itensNivelBaixo":      lowCount,
+			"valorTotalEstoque":    totalValue,
+			"itens":                items,
 			"ultimasMovimentacoes": movs,
 		}
 	}
@@ -319,40 +366,48 @@ func BuildTenantSnapshot(ctx context.Context, pool *pgxpool.Pool, sess *auth.Ses
 		var entries []finItem
 		var totalRec, totalDesp, recConciliada float64
 		var pendentes int
-		if rows, err := pool.Query(ctx,
+		rows, err := pool.Query(ctx,
 			`SELECT f.entry_type, COALESCE(ct.code, 'Geral'), f.description, f.amount::float8,
 			        to_char(f.due_date, 'DD/MM/YYYY'), to_char(f.due_date, 'MM/YYYY'), f.reconciliation_status
 			   FROM financial_entries f
 			   LEFT JOIN contracts ct ON ct.id = f.contract_id
 			  WHERE f.tenant_id = $1
-			  ORDER BY f.due_date DESC LIMIT 100`, tid); err == nil {
-			for rows.Next() {
-				var it finItem
-				if rows.Scan(&it.Type, &it.Contract, &it.Description, &it.Amount, &it.DueDate, &it.Competence, &it.Status) == nil {
-					entries = append(entries, it)
-					if it.Type == "Receita" {
-						totalRec += it.Amount
-						if it.Status == "Conciliado" {
-							recConciliada += it.Amount
-						}
-					} else {
-						totalDesp += it.Amount
-					}
-					if it.Status == "Pendente" {
-						pendentes++
-					}
-				}
-			}
-			rows.Close()
+			  ORDER BY f.due_date DESC LIMIT 100`, tid)
+		if err != nil {
+			return nil, fmt.Errorf("consultar lançamentos financeiros: %w", err)
 		}
+		for rows.Next() {
+			var it finItem
+			if err := rows.Scan(&it.Type, &it.Contract, &it.Description, &it.Amount, &it.DueDate, &it.Competence, &it.Status); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("ler lançamentos financeiros: %w", err)
+			}
+			entries = append(entries, it)
+			if it.Type == "Receita" {
+				totalRec += it.Amount
+				if it.Status == "Conciliado" {
+					recConciliada += it.Amount
+				}
+			} else {
+				totalDesp += it.Amount
+			}
+			if it.Status == "Pendente" {
+				pendentes++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("percorrer lançamentos financeiros: %w", err)
+		}
+		rows.Close()
 		snap.Finance = map[string]any{
-			"totalLancamentos":  len(entries),
-			"totalReceitas":     totalRec,
+			"totalLancamentos":    len(entries),
+			"totalReceitas":       totalRec,
 			"receitasConciliadas": recConciliada,
-			"totalDespesas":     totalDesp,
-			"saldoLiquido":      totalRec - totalDesp,
-			"pendentes":         pendentes,
-			"lancamentos":       entries,
+			"totalDespesas":       totalDesp,
+			"saldoLiquido":        totalRec - totalDesp,
+			"pendentes":           pendentes,
+			"lancamentos":         entries,
 		}
 	}
 

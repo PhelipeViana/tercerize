@@ -1,0 +1,147 @@
+RELATÓRIO — MELHORIAS PARA O ASSISTENTE IA (GO + PGVECTOR)
+
+Data: 24/11/2026
+Escopo: análise da estrutura atual e proposta de evolução; nenhuma alteração funcional foi realizada.
+
+1. RESUMO EXECUTIVO
+
+O assistente atual possui controles importantes de isolamento por empresa (tenant), RBAC, token criptografado, rate limit, histórico e fallback de modelos. Contudo, ainda não utiliza pgvector, embeddings ou um grafo de conhecimento.
+
+Em cada pergunta, o backend constrói um snapshot amplo dos módulos autorizados e o envia ao modelo. Essa abordagem é adequada para bases pequenas, mas perde precisão, aumenta custo e latência quando a empresa acumula muitos registros.
+
+2. FLUXO ATUAL
+
+Usuário
+  -> validação de sessão, empresa ativa e permissão ai_chat:use
+  -> montagem de snapshot dos módulos permitidos
+  -> system prompt + últimas 8 mensagens + pergunta atual
+  -> OpenRouter, com fallback e cooldown de modelos
+  -> gravação da conversa, resposta e telemetria
+
+3. PONTOS DE ATENÇÃO
+
+- Não há pgvector, embeddings ou recuperação semântica.
+- A imagem atual do banco é postgres:17-alpine, sem a extensão pgvector.
+- O snapshot possui limites fixos por módulo, normalmente de 80 ou 100 registros. Um registro antigo, porém relevante, pode não ser enviado ao modelo.
+- Dados de módulos sem relação com a pergunta também são enviados ao modelo.
+- Alguns dados pessoais podem ser enviados mesmo quando não são necessários à pergunta, como CNPJ, e-mail do responsável e contatos de clientes.
+- Erros em várias consultas do snapshot são ignorados; a IA pode interpretar erro como ausência de dados.
+- max_tokens controla a resposta, mas não impõe orçamento robusto ao contexto de entrada.
+- Não existe roteamento por intenção. Perguntas sobre um contrato podem receber contexto de estoque, EPI e financeiro.
+- O histórico usa as últimas 8 mensagens, sem resumo de sessão ou memória semântica.
+- As respostas não possuem citações internas dos registros utilizados.
+- Pergunta, resposta e atualização de conversa não estão agrupadas em uma transação única, o que permite estados parciais em falhas.
+
+4. ARQUITETURA PROPOSTA
+
+Pergunta do usuário
+  -> classificação de intenção e extração de entidades
+  -> consultas estruturadas + busca híbrida
+  -> subgrafo autorizado e mínimo
+  -> contexto factual com referências internas
+  -> modelo de IA
+  -> resposta com evidências, telemetria e avaliação
+
+A busca híbrida combina:
+
+1. SQL estruturado para valores, totais, datas, status e indicadores.
+2. Busca lexical (full-text search) para códigos, nomes e termos exatos.
+3. Busca vetorial com pgvector para descrições, observações e perguntas semânticas.
+4. Expansão controlada do subgrafo de entidades relevantes.
+
+5. GRAFO DE DOMÍNIO RECOMENDADO
+
+PostgreSQL permanece como fonte de verdade. Não é recomendado adotar um banco de grafos separado nesta primeira evolução. O grafo é uma camada lógica formada pelas relações já existentes no banco.
+
+Empresa
+  -> possui Clientes, Contratos, Colaboradores, OS, Estoque e Lançamentos
+
+Cliente
+  -> possui Contratos e Ordens de Serviço
+
+Contrato
+  -> atende Cliente
+  -> aloca Colaboradores
+  -> origina Ordens de Serviço
+  -> vincula Receitas/Lançamentos
+
+Colaborador
+  -> é alocado a Contrato
+  -> recebe EPI
+  -> executa OS
+  -> recebe Cautela/Itens de estoque
+
+OS
+  -> pertence a Cliente e Contrato
+  -> é atribuída a Colaborador
+  -> pode consumir itens de estoque
+
+Item de estoque
+  -> possui Movimentações
+  -> pode ser consumido por OS ou colaborador
+
+Lançamento financeiro
+  -> pertence a Contrato e competência
+
+6. CAMADA PGVECTOR
+
+Criar uma tabela derivada de conhecimento, sem duplicar ou substituir as tabelas operacionais:
+
+ai_knowledge_chunks
+  - tenant_id
+  - source_type
+  - source_id
+  - chunk_type
+  - content
+  - metadata
+  - embedding
+  - content_hash
+  - updated_at
+
+Princípios:
+
+- Um chunk por entidade ou resumo útil: contrato, OS, EPI, movimentação, lançamento ou resumo financeiro por competência.
+- Índice HNSW para similaridade vetorial e GIN para texto completo.
+- Filtro obrigatório por tenant_id e módulos que a role pode visualizar.
+- Atualização assíncrona de embeddings por outbox após criação/edição de registros.
+- Nunca gerar embedding no caminho crítico da resposta ao usuário.
+
+7. LÓGICA DE RECUPERAÇÃO
+
+1. Classificar a pergunta: consulta numérica, busca de registro, relatório, análise ou orientação de uso.
+2. Extrair filtros: código de contrato ou OS, cliente, colaborador, período e status.
+3. Executar SQL determinístico quando a resposta depender de números ou agregações.
+4. Executar busca lexical e vetorial apenas nos módulos permitidos.
+5. Expandir no máximo um ou dois níveis do grafo quando necessário.
+6. Montar contexto pequeno, factual e datado.
+7. Exigir citações internas, como contrato, OS ou lançamento de origem.
+8. Quando não houver evidência, responder que o registro não foi localizado; nunca inferir fatos.
+
+8. PRIORIDADES DE IMPLEMENTAÇÃO
+
+Fase 1 — Segurança e confiabilidade
+- Não ignorar falhas de consulta no snapshot.
+- Estabelecer orçamento para tokens de entrada.
+- Remover PII dispensável do contexto enviado ao provedor.
+- Delimitar dados operacionais como conteúdo não confiável contra prompt injection.
+- Persistir pergunta, resposta e atualização da conversa em transação.
+
+Fase 2 — Ganho imediato sem embeddings
+- Criar roteador de intenção.
+- Criar consultas SQL específicas por módulo e por tipo de relatório.
+- Substituir snapshot integral por contexto mínimo orientado à pergunta.
+- Adicionar citações internas e uma resposta explícita para dados não encontrados.
+
+Fase 3 — pgvector e busca híbrida
+- Usar imagem de PostgreSQL compatível com pgvector.
+- Criar migration da extensão, tabela de chunks, índices e outbox.
+- Implementar indexador assíncrono e busca vetorial/lexical com filtros de tenant e permissão.
+
+Fase 4 — Qualidade contínua
+- Resumo seguro de conversas para memória de sessão.
+- Métricas de recuperação, precisão, latência, tokens e custo.
+- Conjunto de perguntas de avaliação por módulo para evitar regressões.
+
+9. RECOMENDAÇÃO
+
+Começar pelas Fases 1 e 2. Elas reduzem custo e melhoram a qualidade sem introduzir infraestrutura de embeddings. Em seguida, adicionar pgvector como camada incremental, auditável e sempre filtrada por empresa e RBAC.

@@ -37,7 +37,6 @@ export async function createPartnerCompanyStateAction(
   const ownerName = text(formData.get("ownerName"));
   const ownerEmail = text(formData.get("ownerEmail"));
   const openrouterToken = text(formData.get("openrouterToken"));
-  const aiPlanKey = text(formData.get("aiPlanKey")) || "free";
   const partnerMaxCompanies = Math.max(0, Number(text(formData.get("partnerMaxCompanies")) || "0") || 0);
   const partnerNotes = text(formData.get("partnerNotes"));
   const partnerFeatures = readPartnerFeatures(formData);
@@ -77,7 +76,6 @@ export async function createPartnerCompanyStateAction(
         ownerName,
         ownerEmail,
         openrouterToken,
-        aiPlanKey,
         partnerMaxCompanies,
         partnerNotes,
         partnerFeatures,

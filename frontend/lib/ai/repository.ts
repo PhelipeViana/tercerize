@@ -1,23 +1,21 @@
 import "server-only";
-import type { AIPlanKey } from "@/lib/auth/repository";
 import { getPool } from "@/lib/db/pool";
 
-export interface AIPlanRow {
-  key: AIPlanKey;
-  name: string;
+export type AIQualityTier = "simple" | "good" | "great" | "excellent" | "brute";
+
+export interface AIInternalProfileRow {
+  key: string;
+  label: string;
   description: string;
-  sortOrder: number;
-  isPaid: boolean;
   models: string[];
-  timeoutSeconds: number;
-  cooldownSeconds: number;
+  ttftTimeoutSeconds: number;
+  totalTimeoutSeconds: number;
   maxTokens: number;
-  rateLimitPerHour: number;
 }
 
 export interface AIModelStatRow {
   model: string;
-  planKey: string;
+  profileKey: string;
   calls: number;
   avgLatencyMs: number;
   totalFallback: number;
@@ -28,19 +26,45 @@ export interface TenantMonthlyUsageRow {
   tenantId: string;
   tenantName: string;
   cnpj: string;
-  planKey: AIPlanKey;
+  hasToken: boolean;
   monthlyLimit: number;
   messagesThisMonth: number;
   tokensThisMonth: number;
   avgLatencyMs: number;
   creditDepleted: boolean;
-  creditDepletedFrom: string;
 }
 
-export interface AIPlansDashboardData {
-  plans: AIPlanRow[];
+export interface TenantKnowledgeHealthRow {
+  tenantId: string;
+  tenantName: string;
+  indexedChunks: number;
+  embeddedChunks: number;
+  monthlySummaries: number;
+  pendingOutbox: number;
+  deadLetterOutbox: number;
+  oldestPendingMinutes: number;
+  lastIndexedAt: string;
+}
+
+export interface AIObservabilityDashboardData {
+  profiles: AIInternalProfileRow[];
+  embeddingModel: string;
+  embeddingDimensions: number;
   stats: AIModelStatRow[];
   monthlyUsage: TenantMonthlyUsageRow[];
+  knowledgeHealth: TenantKnowledgeHealthRow[];
+}
+
+export interface AICitation {
+  code: string;
+  module: string;
+  href: string;
+  label: string;
+}
+
+export interface AIQuickReply {
+  label: string;
+  value: string;
 }
 
 export interface AIConversationRow {
@@ -54,122 +78,108 @@ export interface AIMessageRow {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  modelUsed?: string;
+  latencyMs?: number;
+  cacheStatus?: string;
+  citations?: AICitation[];
+  quickReplies?: AIQuickReply[];
 }
 
-const DEFAULT_PLANS: AIPlanRow[] = [
+const INTERNAL_PROFILES: AIInternalProfileRow[] = [
   {
-    key: "free",
-    name: "Free",
-    description: "Sequência gratuita padrão (NVIDIA Nemotron + fallbacks gratuitos). Custo zero na OpenRouter.",
-    sortOrder: 1,
-    isPaid: false,
+    key: "simple",
+    label: "1. Simples (Ultra-econômico)",
+    description: "Qwen 3.7 Flash para consultas objetivas, contagens rápidas e dúvidas do dia a dia.",
+    models: ["qwen/qwen3.7-flash", "deepseek/deepseek-v4.1-flash", "google/gemini-2.5-flash-lite"],
+    ttftTimeoutSeconds: 12,
+    totalTimeoutSeconds: 35,
+    maxTokens: 1800,
+  },
+  {
+    key: "good",
+    label: "2. Bom (Padrão)",
+    description: "DeepSeek v4.1 Flash com fallback Qwen — melhor equilíbrio de custo, precisão e tools.",
+    models: ["deepseek/deepseek-v4.1-flash", "qwen/qwen3.7-flash", "qwen/qwen3.8-flash"],
+    ttftTimeoutSeconds: 15,
+    totalTimeoutSeconds: 50,
+    maxTokens: 3200,
+  },
+  {
+    key: "great",
+    label: "3. Ótimo (Qwen Avançado)",
+    description: "Qwen 3.8 Flash para relatórios detalhados, tabelas extensas e cruzamentos ricos.",
+    models: ["qwen/qwen3.8-flash", "deepseek/deepseek-v4.1-flash", "qwen/qwen3.7-flash"],
+    ttftTimeoutSeconds: 18,
+    totalTimeoutSeconds: 55,
+    maxTokens: 4200,
+  },
+  {
+    key: "excellent",
+    label: "4. Excelente (Google Flash Forte)",
+    description: "Google Gemini 2.5 Flash para relatórios gerenciais sofisticados e alta aderência em PT-BR.",
+    models: ["google/gemini-2.5-flash", "qwen/qwen3.8-flash", "deepseek/deepseek-v4.1-flash"],
+    ttftTimeoutSeconds: 18,
+    totalTimeoutSeconds: 60,
+    maxTokens: 5000,
+  },
+  {
+    key: "brute",
+    label: "5. Bruto (Máxima Inteligência + Raciocínio)",
+    description: "Google Gemini 4 Carbon com raciocínio ativado para auditorias e diagnósticos profundos.",
+    models: ["google/gemini-4-carbon", "google/gemini-2.5-flash", "qwen/qwen3.8-flash"],
+    ttftTimeoutSeconds: 25,
+    totalTimeoutSeconds: 85,
+    maxTokens: 6400,
+  },
+  {
+    key: "contingency_free",
+    label: "Contingência gratuita (HTTP 402)",
+    description: "Acionada automaticamente apenas quando os créditos OpenRouter da empresa se esgotam.",
     models: [
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "nvidia/nemotron-3.5-lightning:free",
-      "meta-llama/llama-3.3-70b-instruct:free",
+      "google/gemma-4-31b-it:free",
       "openrouter/free",
     ],
-    timeoutSeconds: 15,
-    cooldownSeconds: 180,
+    ttftTimeoutSeconds: 18,
+    totalTimeoutSeconds: 50,
     maxTokens: 2400,
-    rateLimitPerHour: 30,
-  },
-  {
-    key: "standard",
-    name: "Padrão",
-    description: "Sequência paga econômica de alta velocidade e excelente custo-benefício em português.",
-    sortOrder: 2,
-    isPaid: true,
-    models: ["google/gemini-2.5-flash", "openai/gpt-4o-mini", "google/gemini-2.5-flash-lite"],
-    timeoutSeconds: 18,
-    cooldownSeconds: 120,
-    maxTokens: 3200,
-    rateLimitPerHour: 80,
-  },
-  {
-    key: "premium",
-    name: "Premium",
-    description: "Sequência paga de topo para relatórios executivos profundos e máxima qualidade analítica.",
-    sortOrder: 3,
-    isPaid: true,
-    models: ["anthropic/claude-sonnet-4", "google/gemini-2.5-pro", "openai/gpt-4.1", "google/gemini-2.5-flash"],
-    timeoutSeconds: 25,
-    cooldownSeconds: 90,
-    maxTokens: 4800,
-    rateLimitPerHour: 200,
   },
 ];
 
-function normalizePlanKey(raw: string): AIPlanKey {
-  if (raw === "standard" || raw === "premium") return raw;
-  return "free";
+function stripLegacyTelemetryFooter(content: string): string {
+  const idx = content.indexOf("\n\n---\n*Modelo:");
+  if (idx > 0) return content.slice(0, idx).trim();
+  return content;
 }
 
-export async function getAIPlansDashboard(): Promise<AIPlansDashboardData> {
+export async function getAIObservabilityDashboard(): Promise<AIObservabilityDashboardData> {
   const pool = getPool();
-  let plans: AIPlanRow[] = DEFAULT_PLANS;
-
-  try {
-    const { rows } = await pool.query<{
-      key: string;
-      name: string;
-      description: string;
-      sort_order: number;
-      is_paid: boolean;
-      models: string[] | null;
-      timeout_seconds: number;
-      cooldown_seconds: number;
-      max_tokens: number;
-      rate_limit_per_hour: number;
-    }>(
-      `SELECT key, name, description, sort_order, is_paid, models,
-              timeout_seconds, cooldown_seconds, max_tokens, rate_limit_per_hour
-         FROM ai_plans
-        ORDER BY sort_order ASC`,
-    );
-    if (rows.length > 0) {
-      plans = rows.map((r) => ({
-        key: normalizePlanKey(r.key),
-        name: r.name,
-        description: r.description,
-        sortOrder: Number(r.sort_order),
-        isPaid: Boolean(r.is_paid),
-        models: Array.isArray(r.models) && r.models.length > 0 ? r.models : DEFAULT_PLANS[0].models,
-        timeoutSeconds: Number(r.timeout_seconds || 15),
-        cooldownSeconds: Number(r.cooldown_seconds || 180),
-        maxTokens: Number(r.max_tokens || 2400),
-        rateLimitPerHour: Number(r.rate_limit_per_hour || 30),
-      }));
-    }
-  } catch {
-    // Fallback para defaults se migration ainda estiver inicializando
-  }
 
   const stats: AIModelStatRow[] = [];
   try {
     const { rows } = await pool.query<{
       model_used: string;
-      plan_key: string;
+      profile_key: string;
       calls: string;
       avg_ms: number;
       total_fb: number;
       total_tokens: string;
     }>(
       `SELECT model_used,
-              COALESCE(plan_key, 'free') AS plan_key,
+              COALESCE(plan_key, 'fast_numbers') AS profile_key,
               count(*) AS calls,
               COALESCE(avg(latency_ms)::int, 0) AS avg_ms,
               COALESCE(sum(fallback_count)::int, 0) AS total_fb,
               COALESCE(sum(total_tokens), 0) AS total_tokens
          FROM ai_messages
         WHERE role = 'assistant' AND model_used <> ''
-        GROUP BY model_used, COALESCE(plan_key, 'free')
+        GROUP BY model_used, COALESCE(plan_key, 'fast_numbers')
         ORDER BY count(*) DESC`,
     );
     for (const r of rows) {
       stats.push({
         model: r.model_used,
-        planKey: r.plan_key,
+        profileKey: r.profile_key,
         calls: Number(r.calls),
         avgLatencyMs: Number(r.avg_ms),
         totalFallback: Number(r.total_fb),
@@ -186,24 +196,22 @@ export async function getAIPlansDashboard(): Promise<AIPlansDashboardData> {
       tenant_id: string;
       tenant_name: string;
       cnpj: string;
-      plan_key: string;
+      has_token: boolean;
       monthly_limit: number;
       messages_count: string;
       tokens_total: string;
       avg_ms: number;
       credit_depleted: boolean;
-      credit_depleted_from: string;
     }>(
       `SELECT t.id AS tenant_id,
               t.name AS tenant_name,
               t.cnpj,
-              COALESCE(t.ai_plan_key, 'free') AS plan_key,
+              (COALESCE(t.openrouter_token_enc, '') <> '') AS has_token,
               COALESCE(t.ai_monthly_message_limit, 0) AS monthly_limit,
               COALESCE(count(m.id), 0) AS messages_count,
               COALESCE(sum(m.total_tokens), 0) AS tokens_total,
               COALESCE(avg(m.latency_ms)::int, 0) AS avg_ms,
-              (t.ai_credit_depleted_at IS NOT NULL) AS credit_depleted,
-              COALESCE(t.ai_credit_depleted_from, '') AS credit_depleted_from
+              (t.ai_credit_depleted_at IS NOT NULL) AS credit_depleted
          FROM tenants t
          LEFT JOIN ai_messages m
            ON m.tenant_id = t.id
@@ -217,20 +225,85 @@ export async function getAIPlansDashboard(): Promise<AIPlansDashboardData> {
         tenantId: r.tenant_id,
         tenantName: r.tenant_name,
         cnpj: r.cnpj,
-        planKey: normalizePlanKey(r.plan_key),
+        hasToken: Boolean(r.has_token),
         monthlyLimit: Number(r.monthly_limit || 0),
         messagesThisMonth: Number(r.messages_count || 0),
         tokensThisMonth: Number(r.tokens_total || 0),
         avgLatencyMs: Number(r.avg_ms || 0),
         creditDepleted: Boolean(r.credit_depleted),
-        creditDepletedFrom: r.credit_depleted_from || "",
       });
     }
   } catch {
     // ignore
   }
 
-  return { plans, stats, monthlyUsage };
+  const knowledgeHealth: TenantKnowledgeHealthRow[] = [];
+  try {
+    const { rows } = await pool.query<{
+      tenant_id: string;
+      tenant_name: string;
+      indexed_chunks: number;
+      embedded_chunks: number;
+      monthly_summaries: number;
+      pending_outbox: number;
+      dead_letter_outbox: number;
+      oldest_pending_min: number;
+      last_indexed_at: string;
+    }>(
+      `SELECT t.id::text AS tenant_id,
+              t.name AS tenant_name,
+              COALESCE(c.indexed_chunks, 0)::int AS indexed_chunks,
+              COALESCE(c.embedded_chunks, 0)::int AS embedded_chunks,
+              COALESCE(c.monthly_summaries, 0)::int AS monthly_summaries,
+              COALESCE(o.pending_outbox, 0)::int AS pending_outbox,
+              COALESCE(o.dead_letter_outbox, 0)::int AS dead_letter_outbox,
+              COALESCE(o.oldest_pending_min, 0)::int AS oldest_pending_min,
+              COALESCE(to_char(c.last_indexed_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI'), '—') AS last_indexed_at
+         FROM tenants t
+         LEFT JOIN (
+           SELECT tenant_id,
+                  count(*) FILTER (WHERE chunk_type = 'entity' AND deleted_at IS NULL) AS indexed_chunks,
+                  count(*) FILTER (WHERE chunk_type = 'entity' AND deleted_at IS NULL AND embedding IS NOT NULL) AS embedded_chunks,
+                  count(*) FILTER (WHERE chunk_type = 'monthly_summary' AND deleted_at IS NULL) AS monthly_summaries,
+                  max(indexed_at) FILTER (WHERE deleted_at IS NULL) AS last_indexed_at
+             FROM ai_knowledge_chunks
+            GROUP BY tenant_id
+         ) c ON c.tenant_id = t.id
+         LEFT JOIN (
+           SELECT tenant_id,
+                  count(*) FILTER (WHERE processed_at IS NULL AND dead_lettered_at IS NULL) AS pending_outbox,
+                  count(*) FILTER (WHERE dead_lettered_at IS NOT NULL AND processed_at IS NULL) AS dead_letter_outbox,
+                  COALESCE(EXTRACT(EPOCH FROM (now() - min(occurred_at) FILTER (WHERE processed_at IS NULL AND dead_lettered_at IS NULL))) / 60, 0)::int AS oldest_pending_min
+             FROM ai_outbox
+            GROUP BY tenant_id
+         ) o ON o.tenant_id = t.id
+        ORDER BY t.name ASC`,
+    );
+    for (const r of rows) {
+      knowledgeHealth.push({
+        tenantId: r.tenant_id,
+        tenantName: r.tenant_name,
+        indexedChunks: Number(r.indexed_chunks || 0),
+        embeddedChunks: Number(r.embedded_chunks || 0),
+        monthlySummaries: Number(r.monthly_summaries || 0),
+        pendingOutbox: Number(r.pending_outbox || 0),
+        deadLetterOutbox: Number(r.dead_letter_outbox || 0),
+        oldestPendingMinutes: Number(r.oldest_pending_min || 0),
+        lastIndexedAt: r.last_indexed_at || "—",
+      });
+    }
+  } catch {
+    // Fallback se migration 0013 ainda não rodou no primeiro boot
+  }
+
+  return {
+    profiles: INTERNAL_PROFILES,
+    embeddingModel: process.env.AI_EMBEDDING_MODEL || "openai/text-embedding-3-small",
+    embeddingDimensions: Number(process.env.AI_EMBEDDING_DIMENSIONS || 1536),
+    stats,
+    monthlyUsage,
+    knowledgeHealth,
+  };
 }
 
 export async function listAIConversations(tenantId: string, userId: string): Promise<AIConversationRow[]> {
@@ -264,9 +337,15 @@ export async function listAIMessages(
     id: string;
     role: "user" | "assistant";
     content: string;
+    model_used: string | null;
+    latency_ms: number | null;
+    cache_status: string | null;
     created_at: string;
   }>(
     `SELECT m.id, m.role, m.content,
+            COALESCE(m.model_used, '') AS model_used,
+            COALESCE(m.latency_ms, 0) AS latency_ms,
+            COALESCE(m.cache_status, '') AS cache_status,
             to_char(m.created_at AT TIME ZONE 'America/Cuiaba', 'DD/MM/YYYY HH24:MI') AS created_at
        FROM ai_messages m
        JOIN ai_conversations c ON c.id = m.conversation_id
@@ -279,7 +358,10 @@ export async function listAIMessages(
   return rows.map((r) => ({
     id: r.id,
     role: r.role,
-    content: r.content,
+    content: r.role === "assistant" ? stripLegacyTelemetryFooter(r.content) : r.content,
     createdAt: r.created_at,
+    modelUsed: r.model_used || undefined,
+    latencyMs: r.latency_ms ? Number(r.latency_ms) : undefined,
+    cacheStatus: r.cache_status || undefined,
   }));
 }

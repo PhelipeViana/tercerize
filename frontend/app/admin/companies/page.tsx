@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { CompaniesView } from "@/components/modules/companies-view";
 import { AdminShell } from "@/components/shell/admin-shell";
-import { getAIPlansDashboard } from "@/lib/ai/repository";
+import { getAIObservabilityDashboard } from "@/lib/ai/repository";
 import { firstAllowedRoute, requireSession } from "@/lib/auth/dal";
 import { listCompanies } from "@/lib/operations/repository";
 
@@ -17,7 +17,7 @@ export default async function CompaniesPage({ searchParams }: Props) {
   const { partner } = await searchParams;
   const [companies, aiDashboard] = await Promise.all([
     listCompanies(session.user.id, true),
-    getAIPlansDashboard(),
+    getAIObservabilityDashboard(),
   ]);
 
   return (
@@ -26,7 +26,7 @@ export default async function CompaniesPage({ searchParams }: Props) {
       companies={companies}
       current="companies"
       title="Gestão de empresas"
-      subtitle="Controle exclusivo Master de empresas clientes, acessos, planos de IA e ativação."
+      subtitle="Controle exclusivo Master de empresas clientes, acessos, consumo de IA e ativação."
       hideHeader
     >
       <CompaniesView

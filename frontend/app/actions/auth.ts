@@ -332,13 +332,19 @@ export async function switchTenantAction(formData: FormData): Promise<void> {
   const upper = tenantId.toUpperCase();
   const isMasterContext = upper === "MASTER";
   const isPartnerContext = upper === "PARTNER";
-  await apiFetch("/api/tenants/switch", {
+  const response = await apiFetch("/api/tenants/switch", {
     method: "POST",
     body: {
       tenantId: isMasterContext ? "MASTER" : isPartnerContext ? "PARTNER" : tenantId,
     },
   });
+  if (!response.ok) {
+    throw new Error("Não foi possível trocar o contexto da empresa.");
+  }
   revalidatePath("/", "layout");
+  revalidatePath("/admin/contracts");
+  revalidatePath("/admin/assistant");
+  revalidatePath("/admin/companies");
   if (isMasterContext) {
     redirect("/admin/companies");
   }
@@ -357,7 +363,6 @@ export async function createCompanyStateAction(
   const ownerName = text(formData.get("ownerName")).trim();
   const ownerEmail = text(formData.get("ownerEmail")).trim();
   const openrouterToken = text(formData.get("openrouterToken")).trim();
-  const aiPlanKey = text(formData.get("aiPlanKey")).trim() || "free";
   const aiMonthlyMessageLimit = Math.max(0, Number(text(formData.get("aiMonthlyMessageLimit")) || "0") || 0);
 
   const values = { name, cnpj: rawCnpj, ownerName, ownerEmail };
@@ -401,7 +406,6 @@ export async function createCompanyStateAction(
         ownerName,
         ownerEmail,
         openrouterToken,
-        aiPlanKey,
         aiMonthlyMessageLimit,
       },
     });
@@ -586,7 +590,6 @@ export async function updateCompanyStateAction(
   const resendLink = formData.get("resendLink") === "on";
   const openrouterToken = text(formData.get("openrouterToken")).trim();
   const clearOpenrouterToken = formData.get("clearOpenrouterToken") === "on";
-  const aiPlanKey = text(formData.get("aiPlanKey")).trim() || "free";
   const aiMonthlyMessageLimit = Math.max(0, Number(text(formData.get("aiMonthlyMessageLimit")) || "0") || 0);
 
   if (!tenantId) {
@@ -628,7 +631,6 @@ export async function updateCompanyStateAction(
         resendLink,
         openrouterToken,
         clearOpenrouterToken,
-        aiPlanKey,
         aiMonthlyMessageLimit,
       },
     });

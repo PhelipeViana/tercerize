@@ -2,82 +2,66 @@
 
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api/server";
-import type { AIPlanKey } from "@/lib/auth/repository";
+import type { AICitation, AIQualityTier, AIQuickReply } from "@/lib/ai/repository";
 
 const text = (value: FormDataEntryValue | null) => (typeof value === "string" ? value.trim() : "");
 
-export type AIPlanActionState =
-  | {
-    ok?: boolean;
-    planKey?: AIPlanKey;
-    message?: string;
-    error?: string;
+export interface AIOpsActionResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
+export async function reindexTenantKnowledgeAction(tenantId: string): Promise<AIOpsActionResult> {
+  if (!tenantId.trim()) {
+    return { ok: false, error: "Empresa inválida." };
   }
-  | undefined;
-
-export async function updateAIPlanStateAction(
-  _prev: AIPlanActionState,
-  formData: FormData,
-): Promise<AIPlanActionState> {
-  const key = text(formData.get("key")) as AIPlanKey;
-  const rawModels = text(formData.get("models"));
-  const timeoutSeconds = Number(text(formData.get("timeoutSeconds")) || "15");
-  const cooldownSeconds = Number(text(formData.get("cooldownSeconds")) || "180");
-  const maxTokens = Number(text(formData.get("maxTokens")) || "2400");
-  const rateLimitPerHour = Number(text(formData.get("rateLimitPerHour")) || "30");
-  const clearCooldowns = formData.get("clearCooldowns") === "on";
-
-  const models = rawModels
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (models.length === 0) {
-    return { error: "Informe pelo menos um modelo OpenRouter (um por linha)." };
-  }
-
   try {
-    const res = await apiFetch("/api/ai/plans", {
+    const res = await apiFetch("/api/ai/knowledge/reindex", {
       method: "POST",
-      body: {
-        key,
-        models,
-        timeoutSeconds,
-        cooldownSeconds,
-        maxTokens,
-        rateLimitPerHour,
-        clearCooldowns,
-      },
+      body: { tenantId: tenantId.trim() },
     });
     const data = (await res.json().catch(() => ({}))) as { message?: string };
     if (!res.ok) {
-      return { error: data.message ?? "Não foi possível salvar a configuração do plano." };
+      return { ok: false, error: data.message ?? "Não foi possível reindexar esta empresa." };
     }
     revalidatePath("/admin/companies");
-    revalidatePath("/admin/assistant");
-    const planLabel = key === "premium" ? "Premium" : key === "standard" ? "Padrão" : "Free";
-    return {
-      ok: true,
-      planKey: key,
-      message: `Plano ${planLabel} atualizado (${models.length} modelo(s), timeout ${timeoutSeconds}s, ${rateLimitPerHour} msgs/hora).`,
-    };
+    return { ok: true, message: data.message ?? "Reindexação enfileirada com sucesso." };
   } catch {
-    return { error: "Servidor indisponível no momento." };
+    return { ok: false, error: "Servidor indisponível no momento." };
+  }
+}
+
+export async function clearAICooldownsAction(): Promise<AIOpsActionResult> {
+  try {
+    const res = await apiFetch("/api/ai/cooldowns/clear", {
+      method: "POST",
+      body: {},
+    });
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.message ?? "Não foi possível limpar cooldowns." };
+    }
+    revalidatePath("/admin/companies");
+    return { ok: true, message: "Cooldowns temporários de modelos limpos no Redis." };
+  } catch {
+    return { ok: false, error: "Servidor indisponível no momento." };
   }
 }
 
 export interface AIChatReplyResult {
   ok: boolean;
   conversationId?: string;
-  planKey?: AIPlanKey;
-  planName?: string;
-  downgradedFromPlan?: string;
   creditNotice?: string;
   message?: {
     id: string;
     role: "assistant";
     content: string;
     createdAt: string;
+    modelUsed?: string;
+    latencyMs?: number;
+    citations?: AICitation[];
+    quickReplies?: AIQuickReply[];
   };
   error?: string;
 }
@@ -85,6 +69,7 @@ export interface AIChatReplyResult {
 export async function sendAIChatAction(input: {
   conversationId?: string;
   message: string;
+  tier?: AIQualityTier;
 }): Promise<AIChatReplyResult> {
   const message = input.message.trim();
   if (message.length < 2) {
@@ -94,18 +79,16 @@ export async function sendAIChatAction(input: {
   try {
     const res = await apiFetch("/api/ai/chat", {
       method: "POST",
-      timeoutMs: 85_000,
+      timeoutMs: 110_000,
       body: {
         conversationId: input.conversationId ?? "",
         message,
+        tier: input.tier ?? "good",
       },
     });
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       conversationId?: string;
-      planKey?: AIPlanKey;
-      planName?: string;
-      downgradedFromPlan?: string;
       creditNotice?: string;
       message?: unknown;
       error?: string;
@@ -120,15 +103,9 @@ export async function sendAIChatAction(input: {
     }
 
     revalidatePath("/admin/assistant");
-    if (data.downgradedFromPlan) {
-      revalidatePath("/admin/companies");
-    }
     return {
       ok: true,
       conversationId: data.conversationId,
-      planKey: data.planKey,
-      planName: data.planName,
-      downgradedFromPlan: data.downgradedFromPlan,
       creditNotice: data.creditNotice,
       message: data.message as AIChatReplyResult["message"],
     };
